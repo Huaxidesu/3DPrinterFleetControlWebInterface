@@ -90,7 +90,7 @@ type LicensePayload = {
   licenseEnforce?: boolean
 }
 
-const REPO_FALLBACK = 'http://sc1.dpfrp.top:3000'
+const REPO_FALLBACK = 'http://103.40.13.103:65256'
 
 function isPaidRow(row: Pick<MarketRow, 'pricingType' | 'price'>): boolean {
   if (String(row.pricingType || '').toUpperCase() === 'PAID') return true
@@ -837,7 +837,7 @@ export function SoftSettingsMarketplace() {
                 message="读取不到应用集市"
                 description={
                   payload.message ||
-                  '请确认运行监控台的服务器能访问 MARKET_BASE_URL（默认 http://sc1.dpfrp.top:3000）。'
+                  '请确认运行监控台的服务器能访问 MARKET_BASE_URL（默认 http://103.40.13.103:65256）。'
                 }
               />
             ) : null}

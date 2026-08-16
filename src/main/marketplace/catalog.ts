@@ -5,7 +5,7 @@
 import { createHash } from 'crypto'
 
 export function getMarketBaseUrl(): string {
-  return String(process.env.MARKET_BASE_URL || 'http://sc1.dpfrp.top:3000')
+  return String(process.env.MARKET_BASE_URL || 'http://103.40.13.103:65256')
     .trim()
     .replace(/\/+$/, '')
 }
