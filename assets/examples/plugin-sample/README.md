@@ -24,4 +24,4 @@
 
 另有仓温卡片示例源码：仓库 `examples/plugin-chamber-temp/`（可自行打包上传）。
 
-开发手册见仓库 `http://sc1.dpfrp.top:3000/docs`。
+开发手册见仓库 `http://103.40.13.103:65256/docs`。
