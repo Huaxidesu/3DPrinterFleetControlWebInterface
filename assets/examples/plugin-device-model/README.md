@@ -4,7 +4,7 @@
 
 ## 数据说明（重要）
 
-按 [开发文档](http://103.40.13.103:65256/docs) §6.2，`device.card.*` 槽位 `context` **不包含机型**，只有：
+按 [开发文档](http://sc1.dpfrp.top:3000/docs) §6.2，`device.card.*` 槽位 `context` **不包含机型**，只有：
 
 `deviceId`、`deviceName`、`brand`、`chamberTemp`、`boardTemp`、`health`、`state`、`tech`
 

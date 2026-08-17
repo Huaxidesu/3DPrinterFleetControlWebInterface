@@ -6,8 +6,10 @@ import {
   fetchBinary,
   getLicenseSoftware,
   getMarketBaseUrl,
+  listMarketBaseCandidates,
   loadMarketCatalog,
   packageDownloadUrls,
+  resolveMarketBaseUrl,
   verifySha256,
   type MarketPackageKind
 } from '../marketplace/catalog'
@@ -69,7 +71,10 @@ export async function handleMarketplaceApi(opts: {
 
   const pm = getPluginManager()
   const tm = getThemeManager()
-  const marketBase = getMarketBaseUrl()
+  let marketBase = getMarketBaseUrl()
+  const marketBases = listMarketBaseCandidates().filter(
+    (b) => !/127\.0\.0\.1|localhost/i.test(b)
+  )
 
   const licenseEffects = createLicenseSideEffects({
     dataRoot,
@@ -124,6 +129,7 @@ export async function handleMarketplaceApi(opts: {
       loggedIn: me.loggedIn,
       user: me.user,
       marketBase,
+      marketBases,
       registerUrl: `${marketBase}/register`,
       loginUrl: `${marketBase}/login`,
       message: me.message
@@ -214,6 +220,8 @@ export async function handleMarketplaceApi(opts: {
   if (method === 'GET' && (path === '/api/v1/marketplace' || path === '/api/v1/marketplace/')) {
     const u = new URL(req.url || '/', 'http://127.0.0.1')
     const force = u.searchParams.get('force') === '1'
+    await resolveMarketBaseUrl(force)
+    marketBase = getMarketBaseUrl()
     const me = await fetchMarketMe(dataRoot)
     if (!me.loggedIn) {
       sendJson(res, 200, {
@@ -224,6 +232,7 @@ export async function handleMarketplaceApi(opts: {
         loggedIn: false,
         user: null,
         marketBase,
+        marketBases,
         siteKeyConfigured: Boolean(resolveSiteKey(dataRoot)),
         deviceIdConfigured: Boolean(resolveDeviceId(dataRoot)),
         deviceId: resolveDeviceId(dataRoot) || null,
@@ -237,6 +246,7 @@ export async function handleMarketplaceApi(opts: {
     }
 
     const loaded = await loadMarketCatalog(force)
+    marketBase = getMarketBaseUrl()
     const plugins = new Map<string, string>()
     const themes = new Map<string, string>()
     if (pm) {
@@ -262,6 +272,7 @@ export async function handleMarketplaceApi(opts: {
       name: loaded.catalog.name || '应用集市',
       updatedAt: loaded.catalog.updatedAt,
       marketBase,
+      marketBases,
       siteKeyConfigured: Boolean(resolveSiteKey(dataRoot)),
       software: getLicenseSoftware() || null,
       docsUrl: `${marketBase}/docs`,
@@ -292,7 +303,9 @@ export async function handleMarketplaceApi(opts: {
       reachable: loaded.reachable,
       message: loaded.message,
       count: loaded.catalog.packages.length,
-      repo: marketBase
+      repo: marketBase,
+      marketBase,
+      marketBases
     })
     return true
   }
@@ -301,9 +314,11 @@ export async function handleMarketplaceApi(opts: {
     const file = loadMarketLicenses(dataRoot)
     const siteKey = resolveSiteKey(dataRoot)
     const deviceId = resolveDeviceId(dataRoot)
+    marketBase = getMarketBaseUrl()
     sendJson(res, 200, {
       ok: true,
       marketBase,
+      marketBases,
       deviceId: deviceId || null,
       deviceIdConfigured: Boolean(deviceId),
       siteKey: siteKey || null,

@@ -58,6 +58,7 @@ type MarketPayload = {
   name?: string
   updatedAt?: string
   marketBase?: string
+  marketBases?: string[]
   siteKeyConfigured?: boolean
   docsUrl?: string
   consoleUrl?: string
@@ -90,7 +91,9 @@ type LicensePayload = {
   licenseEnforce?: boolean
 }
 
-const REPO_FALLBACK = 'http://103.40.13.103:65256'
+const REPO_FALLBACK = 'http://sc1.dpfrp.top:3000'
+/** 源码内置备用线路（与服务端 catalog 一致；勿写入对外文档） */
+const REPO_FALLBACKS = ['http://sc1.dpfrp.top:3000', 'http://124.221.92.32:3001'] as const
 
 function isPaidRow(row: Pick<MarketRow, 'pricingType' | 'price'>): boolean {
   if (String(row.pricingType || '').toUpperCase() === 'PAID') return true
@@ -649,7 +652,12 @@ export function SoftSettingsMarketplace() {
     void doInstall(installTarget)
   }
 
-  const repo = payload?.repo || payload?.marketBase || REPO_FALLBACK
+  const repo =
+    payload?.repo ||
+    payload?.marketBase ||
+    (Array.isArray(payload?.marketBases) && payload.marketBases[0]) ||
+    REPO_FALLBACKS[0] ||
+    REPO_FALLBACK
   const consoleUrl = payload?.consoleUrl || `${repo}/console`
   const registerUrl = payload?.registerUrl || `${repo}/register`
   const loginUrl = payload?.loginUrl || `${repo}/login`
@@ -837,7 +845,7 @@ export function SoftSettingsMarketplace() {
                 message="读取不到应用集市"
                 description={
                   payload.message ||
-                  '请确认运行监控台的服务器能访问 MARKET_BASE_URL（默认 http://103.40.13.103:65256）。'
+                  '请确认运行监控台的服务器能访问应用集市（多线路自动切换）。'
                 }
               />
             ) : null}

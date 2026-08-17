@@ -1,13 +1,103 @@
 /**
  * 应用集市远程目录：GET {MARKET_BASE}/api/apps
  * 安装包：{MARKET_BASE}{packagePath}（通常 /uploads/xxx.zip）
+ *
+ * 多线路：环境变量优先，源码内置备用地址；探测通哪条用哪条。
  */
 import { createHash } from 'crypto'
+import dns from 'dns'
 
-export function getMarketBaseUrl(): string {
-  return String(process.env.MARKET_BASE_URL || 'http://103.40.13.103:65256')
+// FRP / 部分运营商 IPv6 不通时，Node 默认先试 AAAA 会直接 fetch failed；浏览器却正常
+try {
+  dns.setDefaultResultOrder('ipv4first')
+} catch {
+  /* ignore older node */
+}
+
+/** 源码内置备用线路（勿写入对外文档） */
+const BUILTIN_MARKET_BASES = [
+  'http://sc1.dpfrp.top:3000',
+  'http://124.221.92.32:3001'
+] as const
+
+const RESOLVE_TTL_MS = 60_000
+let resolvedBase: { url: string; at: number } | null = null
+
+function normalizeBase(raw: string): string {
+  return String(raw || '')
     .trim()
     .replace(/\/+$/, '')
+}
+
+/** 候选市场根地址：MARKET_BASE_URL / MARKET_BASE_URLS + 内置线路（去重保序） */
+export function listMarketBaseCandidates(): string[] {
+  const out: string[] = []
+  const push = (raw: string) => {
+    const b = normalizeBase(raw)
+    if (!b || !/^https?:\/\//i.test(b)) return
+    if (!out.includes(b)) out.push(b)
+  }
+  push(String(process.env.MARKET_BASE_URL || ''))
+  for (const part of String(process.env.MARKET_BASE_URLS || '').split(/[,;\s]+/)) {
+    push(part)
+  }
+  for (const b of BUILTIN_MARKET_BASES) push(b)
+  // 本机开发兜底
+  push('http://127.0.0.1:3000')
+  push('http://127.0.0.1:3001')
+  return out
+}
+
+/** 同步：最近探测成功的地址，否则返回候选第一条 */
+export function getMarketBaseUrl(): string {
+  if (resolvedBase && Date.now() - resolvedBase.at < RESOLVE_TTL_MS * 5) {
+    return resolvedBase.url
+  }
+  return listMarketBaseCandidates()[0] || 'http://sc1.dpfrp.top:3000'
+}
+
+function rememberMarketBase(url: string): string {
+  const b = normalizeBase(url)
+  if (b) resolvedBase = { url: b, at: Date.now() }
+  return b || getMarketBaseUrl()
+}
+
+/** 外部在探测成功后锁定当前线路 */
+export function setMarketBaseUrl(url: string): string {
+  return rememberMarketBase(url)
+}
+
+async function probeMarketBase(base: string, timeoutMs = 6_000): Promise<boolean> {
+  try {
+    const ctrl = new AbortController()
+    const t = setTimeout(() => ctrl.abort(), timeoutMs)
+    const res = await fetch(`${normalizeBase(base)}/api/apps`, {
+      signal: ctrl.signal,
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'hanye-printer-monitor-marketplace'
+      },
+      redirect: 'follow'
+    })
+    clearTimeout(t)
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+/** 探测候选线路，缓存可通地址；force 时重新探测 */
+export async function resolveMarketBaseUrl(force = false): Promise<string> {
+  if (!force && resolvedBase && Date.now() - resolvedBase.at < RESOLVE_TTL_MS) {
+    return resolvedBase.url
+  }
+  const candidates = listMarketBaseCandidates()
+  for (const base of candidates) {
+    if (await probeMarketBase(base)) {
+      return rememberMarketBase(base)
+    }
+  }
+  return rememberMarketBase(candidates[0] || 'http://sc1.dpfrp.top:3000')
 }
 
 /** 兼容软件标识；空字符串表示不传 software 字段 */
@@ -108,22 +198,42 @@ export function packageDownloadUrls(relPath: string): string[] {
 
 async function fetchText(
   url: string,
-  timeoutMs = 15_000
+  timeoutMs = 25_000,
+  retries = 3
 ): Promise<{ ok: true; text: string } | { ok: false; message: string }> {
-  try {
-    const ctrl = new AbortController()
-    const t = setTimeout(() => ctrl.abort(), timeoutMs)
-    const res = await fetch(url, {
-      signal: ctrl.signal,
-      headers: marketHeaders(),
-      redirect: 'follow'
-    })
-    clearTimeout(t)
-    if (!res.ok) return { ok: false, message: `HTTP ${res.status} @ ${url}` }
-    return { ok: true, text: await res.text() }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    return { ok: false, message: /abort|timeout/i.test(msg) ? `超时 ${url}` : `失败 ${url}` }
+  const notes: string[] = []
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const ctrl = new AbortController()
+      const t = setTimeout(() => ctrl.abort(), timeoutMs)
+      const res = await fetch(url, {
+        signal: ctrl.signal,
+        headers: marketHeaders(),
+        redirect: 'follow'
+      })
+      clearTimeout(t)
+      if (!res.ok) {
+        notes.push(`HTTP ${res.status}`)
+        if (attempt < retries) await new Promise((r) => setTimeout(r, 400 * attempt))
+        continue
+      }
+      return { ok: true, text: await res.text() }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      const cause =
+        e instanceof Error && e.cause instanceof Error
+          ? e.cause.message
+          : e instanceof Error && e.cause
+            ? String(e.cause)
+            : ''
+      const detail = [msg, cause].filter(Boolean).join(' / ')
+      notes.push(/abort|timeout/i.test(detail) ? '超时' : detail || '失败')
+      if (attempt < retries) await new Promise((r) => setTimeout(r, 500 * attempt))
+    }
+  }
+  return {
+    ok: false,
+    message: `失败 ${url}（${notes.slice(-2).join('；') || '网络异常'}）`
   }
 }
 
@@ -344,10 +454,18 @@ export async function loadMarketCatalog(force = false): Promise<{
   }
   if (force) cache = null
 
-  const base = getMarketBaseUrl()
-  const bust = `t=${Date.now()}`
   const notes: string[] = []
-  const urls = [`${base}/api/apps?${bust}`]
+  const bust = `t=${Date.now()}`
+  // 按候选线路逐条尝试（通哪条用哪条）
+  const bases = force ? listMarketBaseCandidates() : [await resolveMarketBaseUrl(false), ...listMarketBaseCandidates()]
+  const tried = new Set<string>()
+  const urls: string[] = []
+  for (const base of bases) {
+    const b = normalizeBase(base)
+    if (!b || tried.has(b)) continue
+    tried.add(b)
+    urls.push(`${b}/api/apps?${bust}`, `${b}/api/apps`)
+  }
 
   for (const url of urls) {
     const r = await fetchText(url)
@@ -361,11 +479,17 @@ export async function loadMarketCatalog(force = false): Promise<{
         notes.push('目录为空')
         continue
       }
-      cache = { at: Date.now(), catalog }
+      try {
+        const u = new URL(url)
+        rememberMarketBase(`${u.protocol}//${u.host}`)
+      } catch {
+        /* ignore */
+      }
+      cache = { at: Date.now(), catalog: { ...catalog, repo: getMarketBaseUrl() } }
       return {
         ok: true,
         reachable: true,
-        catalog,
+        catalog: cache.catalog,
         source: url,
         message: 'ok'
       }
@@ -378,7 +502,7 @@ export async function loadMarketCatalog(force = false): Promise<{
     ok: false,
     reachable: false,
     catalog: { version: 1, packages: [], name: '应用集市', repo: getMarketBaseUrl() },
-    message: notes.slice(0, 2).join('；') || `无法读取应用集市（${getMarketBaseUrl()}）`
+    message: notes.slice(0, 2).join('；') || `无法读取应用集市（${listMarketBaseCandidates().join(' | ')}）`
   }
 }
 

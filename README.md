@@ -4,7 +4,7 @@
 
 | 项目 | 说明 |
 |------|------|
-| 版本 | **3.0.1** |
+| 版本 | **3.1.0** |
 | 许可 | MIT |
 | 默认端口 | **17890** |
 | 默认管理员 | **admin** / **admin123**（登录后请立刻改密） |
@@ -175,7 +175,7 @@ docker compose up -d --build
 
 监控与控制、耗材、打印审核队列、用户权限 / 按设备授权、监控墙与区域摄像头、代打报价、模型 / AI 入口、告警、**主题包**（含整站 `siteMode: full`）、**插件**（钩子 / 槽位 / 微内核 v2）、**应用集市**一键安装等。
 
-**应用集市**：默认 [http://103.40.13.103:65256](http://103.40.13.103:65256/)（可用 `MARKET_BASE_URL` 覆盖）。管理员在「软件设置 → 应用集市」浏览并安装；插件 / 主题开发文档与示例见 [http://103.40.13.103:65256/docs](http://103.40.13.103:65256/docs)。
+**应用集市**：默认 [http://sc1.dpfrp.top:3000](http://sc1.dpfrp.top:3000/)（可用 `MARKET_BASE_URL` 覆盖）。管理员在「软件设置 → 应用集市」浏览并安装；插件 / 主题开发文档与示例见 [http://sc1.dpfrp.top:3000/docs](http://sc1.dpfrp.top:3000/docs)。
 
 常见品牌协议：Klipper/Moonraker、拓竹、创想、Elegoo、Anycubic、Snapmaker、闪铸等。  
 纯网页版由 **服务端** 连接打印机，请保证部署机与打印机网络可达。
@@ -222,7 +222,7 @@ docker compose up -d --build
 | [MYSQL.md](ops/docs/MYSQL.md) | MySQL |
 | [BAOTA.md](ops/docs/BAOTA.md) | 宝塔 |
 
-插件 / 主题开发文档与官方示例请到应用集市查看： [http://103.40.13.103:65256/docs](http://103.40.13.103:65256/docs)。
+插件 / 主题开发文档与官方示例请到应用集市查看： [http://sc1.dpfrp.top:3000/docs](http://sc1.dpfrp.top:3000/docs)。
 
 ---
 

@@ -20,4 +20,4 @@
 | `templates/app.header.before.htm` | 顶栏前槽位（extends + block replace） |
 
 `templates/` 下 `.htm` **自动发现**为槽位名（服务端 TemplateEngine 编译后注入）。  
-可选 `theme.json.parent` 继承母主题同名模板。开发手册见 `http://103.40.13.103:65256/docs`。
+可选 `theme.json.parent` 继承母主题同名模板。开发手册见 `http://sc1.dpfrp.top:3000/docs`。

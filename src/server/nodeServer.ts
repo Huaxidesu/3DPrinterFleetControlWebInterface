@@ -1,5 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join, resolve } from 'path'
+import dns from 'dns'
+
+try {
+  dns.setDefaultResultOrder('ipv4first')
+} catch {
+  /* ignore */
+}
 import { ApiServer, defaultSettings, normalizeSettings, type AppSettings } from '../main/api/server'
 import { UserStore } from '../main/auth/users'
 import { PrintRequestStore } from '../main/auth/printRequests'

@@ -10,7 +10,7 @@
 import http from 'http'
 import https from 'https'
 import { URL } from 'url'
-import { getMarketBaseUrl } from '../marketplace/catalog'
+import { getMarketBaseUrl, listMarketBaseCandidates, resolveMarketBaseUrl, setMarketBaseUrl } from '../marketplace/catalog'
 
 export type OwnedApp = {
   appIdentifier: string
@@ -175,7 +175,6 @@ export async function marketHeartbeat(input: {
   appIdentifier?: string
   timeoutMs?: number
 }): Promise<HeartbeatResult> {
-  const base = String(input.marketBase || getMarketBaseUrl()).replace(/\/$/, '')
   const deviceId = String(input.deviceId || '').trim()
   if (!deviceId) {
     return {
@@ -189,15 +188,38 @@ export async function marketHeartbeat(input: {
     }
   }
 
+  const preferred = String(input.marketBase || (await resolveMarketBaseUrl(false))).replace(/\/$/, '')
+  const bases = input.marketBase
+    ? [preferred]
+    : Array.from(new Set([preferred, ...listMarketBaseCandidates()]))
+
   try {
-    const payload = await postJson(
-      `${base}/api/license/heartbeat`,
-      {
-        deviceId,
-        ...(input.appIdentifier ? { appIdentifier: input.appIdentifier } : {})
-      },
-      input.timeoutMs ?? 8000
-    )
+    let lastErr: unknown
+    let payload: { status: number; text: string } | null = null
+    let usedBase = preferred
+    outer: for (const tryBase of bases) {
+      const root = String(tryBase).replace(/\/$/, '')
+      for (let i = 0; i < 2; i++) {
+        try {
+          payload = await postJson(
+            `${root}/api/license/heartbeat`,
+            {
+              deviceId,
+              ...(input.appIdentifier ? { appIdentifier: input.appIdentifier } : {})
+            },
+            input.timeoutMs ?? 15_000
+          )
+          usedBase = root
+          lastErr = null
+          break outer
+        } catch (e) {
+          lastErr = e
+          await new Promise((r) => setTimeout(r, 300 * (i + 1)))
+        }
+      }
+    }
+    if (!payload) throw lastErr || new Error('heartbeat failed')
+    if (!input.marketBase) setMarketBaseUrl(usedBase)
     let json: Record<string, unknown> | null = null
     try {
       json = JSON.parse(payload.text) as Record<string, unknown>
@@ -256,7 +278,10 @@ export async function checkInstalledPlugins(input: {
   items: CheckInstalledItem[]
   timeoutMs?: number
 }): Promise<CheckInstalledResult> {
-  const base = String(input.marketBase || getMarketBaseUrl()).replace(/\/$/, '')
+  const preferred = String(input.marketBase || (await resolveMarketBaseUrl(false))).replace(/\/$/, '')
+  const bases = input.marketBase
+    ? [preferred]
+    : Array.from(new Set([preferred, ...listMarketBaseCandidates()]))
   const deviceId = String(input.deviceId || '').trim()
   const items = (input.items || []).slice(0, 100)
   if (!items.length) {
@@ -287,17 +312,32 @@ export async function checkInstalledPlugins(input: {
   }
 
   try {
-    const payload = await postJson(
-      `${base}/api/license/check-installed`,
-      {
-        deviceId,
-        items: items.map((it) => ({
-          appIdentifier: it.appIdentifier,
-          ...(it.type ? { type: String(it.type).toUpperCase() } : {})
-        }))
-      },
-      input.timeoutMs ?? 15_000
-    )
+    let lastErr: unknown
+    let payload: { status: number; text: string } | null = null
+    let usedBase = preferred
+    for (const tryBase of bases) {
+      const root = String(tryBase).replace(/\/$/, '')
+      try {
+        payload = await postJson(
+          `${root}/api/license/check-installed`,
+          {
+            deviceId,
+            items: items.map((it) => ({
+              appIdentifier: it.appIdentifier,
+              ...(it.type ? { type: String(it.type).toUpperCase() } : {})
+            }))
+          },
+          input.timeoutMs ?? 15_000
+        )
+        usedBase = root
+        lastErr = null
+        break
+      } catch (e) {
+        lastErr = e
+      }
+    }
+    if (!payload) throw lastErr || new Error('check-installed failed')
+    if (!input.marketBase) setMarketBaseUrl(usedBase)
 
     let json: Record<string, unknown> | null = null
     try {
