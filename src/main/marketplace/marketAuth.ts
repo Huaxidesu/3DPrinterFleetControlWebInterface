@@ -298,11 +298,12 @@ function requireInstallUser(dataRoot: string):
   const token = getMarketSessionToken(dataRoot)
   if (!token) return { ok: false, message: '请先登录应用集市', code: 'AUTH_REQUIRED' }
   const role = String(loadMarketAuth(dataRoot).user?.role || '').trim()
-  if (role && role !== 'USER') {
+  // 普通用户 + 开发者可安装；自己的插件/主题在市场侧按免费处理
+  if (role && role !== 'USER' && role !== 'DEVELOPER') {
     return {
       ok: false,
       message:
-        '仅普通用户可购买与安装应用。请退出后用普通用户账号登录（开发者/管理员请另注册用户账号）。',
+        '请使用普通用户或开发者账号登录应用集市后再安装（管理员请另注册账号）。',
       code: 'ROLE_DENIED'
     }
   }

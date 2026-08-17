@@ -1,11 +1,21 @@
-# 飞牛 / 群晖 / NAS：host 网络，便于扫局域网打印机
+# 飞牛 / 群晖 / NAS 推荐编排（与默认 compose 同一套网络，稳定连库）
 # 用法（在 docker/ 目录）：
 #   docker compose -f docker-compose.fnos.yml up -d --build
+#
+# 说明：
+# - 不要用 network_mode: host 连库（飞牛上等常见「等 127.0.0.1:3306 超时」）
+# - MySQL 与 app 走 Compose 默认桥接网，MYSQL_HOST=mysql
+# - 局域网扫打印机：填好 LAN_SCAN_SUBNETS；仍扫不到就在网页里手动加 IP
 services:
   mysql:
     image: mysql:8.0
     container_name: hanye-mysql
     restart: unless-stopped
+    networks:
+      default:
+        aliases:
+          - mysql
+          - hanye-mysql
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-hanye_root_change_me}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-hanye_printer}
@@ -14,8 +24,6 @@ services:
     volumes:
       - hanye_mysql_data:/var/lib/mysql
       - ../ops/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-    ports:
-      - "127.0.0.1:3306:3306"
     healthcheck:
       test:
         [
@@ -41,19 +49,19 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     image: hanye-printer-monitor:latest
-    # 不要去 Docker Hub 拉这个本地镜像名（否则会一直 app Pulling）
     pull_policy: build
     container_name: hanye-app
     restart: unless-stopped
-    network_mode: host
     depends_on:
       mysql:
         condition: service_healthy
+    ports:
+      - "${PORT:-17890}:17890"
     environment:
       USE_MYSQL: "1"
       PORT: "17890"
       DATA_ROOT: /app/data
-      MYSQL_HOST: "127.0.0.1"
+      MYSQL_HOST: hanye-mysql
       MYSQL_PORT: "3306"
       MYSQL_USER: ${MYSQL_USER:-hanye}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-hanye_pass_change_me}
@@ -65,6 +73,11 @@ services:
       LAN_SCAN_SUBNETS: ${LAN_SCAN_SUBNETS:-192.168.1}
       RUNNING_IN_DOCKER: "1"
       UPDATE_GIT_ROOT: /host-repo
+      MARKET_BASE_URL: ${MARKET_BASE_URL:-http://sc1.dpfrp.top:3000}
+      MARKET_DESKTOP_SECRET: ${MARKET_DESKTOP_SECRET:-app-market-desktop-please-change-me}
+      MARKET_DEVICE_ID: ${MARKET_DEVICE_ID:-}
+      LICENSE_REQUIRED: ${LICENSE_REQUIRED:-0}
+      LICENSE_SOFTWARE: ${LICENSE_SOFTWARE:-hanye-printer-monitor}
     volumes:
       - ../data:/app/data
       - ..:/host-repo

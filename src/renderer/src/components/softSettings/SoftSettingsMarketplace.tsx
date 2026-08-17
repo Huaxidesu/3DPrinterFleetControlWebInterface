@@ -830,11 +830,11 @@ export function SoftSettingsMarketplace() {
             }
           >
             <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-              目录来自应用集市。免费应用直接领取授权；收费应用会弹出付款二维码，确认后再安装。开发者可以到
+              目录来自应用集市。免费应用直接领取授权；收费应用会弹出付款二维码，确认后再安装。开发者安装自己的插件/主题一律免费。可到
               <Typography.Link onClick={() => openExternal(`${repo.replace(/\/+$/, '')}/docs`)}>
                 应用市场
               </Typography.Link>
-              获取开发文档与示例，用于开发插件/主题。
+              获取开发文档与示例。
             </Typography.Paragraph>
 
             {payload && payload.reachable === false ? (

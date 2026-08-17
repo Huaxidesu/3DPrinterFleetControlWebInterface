@@ -16,18 +16,12 @@ IMPORT_FORCE="${IMPORT_FORCE:-0}"
 mkdir -p "$DATA_ROOT"
 
 wait_mysql() {
-  echo "[entrypoint] Waiting for MySQL at ${MYSQL_HOST}:${MYSQL_PORT}…"
+  echo "[entrypoint] Waiting for MySQL at ${MYSQL_HOST}:${MYSQL_PORT} (user=${MYSQL_USER}, db=${MYSQL_DATABASE})…"
   i=0
+  last_err=""
   while [ "$i" -lt "$WAIT_MYSQL_SECONDS" ]; do
-    if node -e "
-const net = require('net');
-const s = net.connect({ host: process.env.MYSQL_HOST || 'mysql', port: Number(process.env.MYSQL_PORT || 3306) });
-s.on('connect', () => { s.end(); process.exit(0); });
-s.on('error', () => process.exit(1));
-setTimeout(() => process.exit(1), 2000);
-" 2>/dev/null; then
-      # TCP open — try an actual mysql handshake via mysql2
-      if node -e "
+    err="$(
+      node -e "
 const mysql = require('mysql2/promise');
 (async () => {
   try {
@@ -43,18 +37,27 @@ const mysql = require('mysql2/promise');
     await c.end();
     process.exit(0);
   } catch (e) {
+    console.error(String(e && e.message || e));
     process.exit(1);
   }
 })();
-" 2>/dev/null; then
-        echo "[entrypoint] MySQL is ready"
-        return 0
-      fi
+" 2>&1
+    )" && status=0 || status=1
+    if [ "$status" -eq 0 ]; then
+      echo "[entrypoint] MySQL is ready"
+      return 0
+    fi
+    last_err="$err"
+    # 每 30 秒打一次原因，避免刷屏
+    if [ $((i % 30)) -eq 0 ] && [ -n "$last_err" ]; then
+      echo "[entrypoint] still waiting: $last_err" >&2
     fi
     i=$((i + 2))
     sleep 2
   done
   echo "[entrypoint] ERROR: MySQL not ready after ${WAIT_MYSQL_SECONDS}s" >&2
+  echo "[entrypoint] last error: ${last_err:-unknown}" >&2
+  echo "[entrypoint] tip: NAS 请用 docker-compose.yml（MYSQL_HOST=mysql），不要让 app 去连 127.0.0.1" >&2
   exit 1
 }
 

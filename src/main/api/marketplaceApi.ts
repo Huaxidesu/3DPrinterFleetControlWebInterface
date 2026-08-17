@@ -647,17 +647,18 @@ export async function handleMarketplaceApi(opts: {
 
       const claimedPath = String(claim.packagePath || '').trim()
       const pkgPath = String(pkg.path || '').trim()
+      // 优先走带鉴权的 download 接口（可直接返回 ZIP）；/uploads 静态次之
+      const idUrls = [
+        `${marketBase}/api/apps/${encodeURIComponent(identifier)}/download`
+      ]
       const baseUrls = [
         ...packageDownloadUrls(claimedPath),
         ...(pkgPath ? packageDownloadUrls(pkgPath) : [])
       ]
-      const idUrls = [
-        `${marketBase}/api/apps/${encodeURIComponent(identifier)}/download`
-      ]
       const urls =
         typeof body.url === 'string' && body.url.trim()
-          ? [body.url.trim(), ...baseUrls, ...idUrls]
-          : [...baseUrls, ...idUrls]
+          ? [body.url.trim(), ...idUrls, ...baseUrls]
+          : [...idUrls, ...baseUrls]
       const sessionCookie = getMarketSessionToken(dataRoot)
       const dl = await fetchBinary(urls, 60_000, { sessionCookie })
       if (!dl.ok) {

@@ -5,6 +5,11 @@ services:
     image: mysql:8.0
     container_name: hanye-mysql
     restart: unless-stopped
+    networks:
+      default:
+        aliases:
+          - mysql
+          - hanye-mysql
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-hanye_root_change_me}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-hanye_printer}
@@ -51,7 +56,7 @@ services:
       USE_MYSQL: "1"
       PORT: "17890"
       DATA_ROOT: /app/data
-      MYSQL_HOST: mysql
+      MYSQL_HOST: hanye-mysql
       MYSQL_PORT: "3306"
       MYSQL_USER: ${MYSQL_USER:-hanye}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-hanye_pass_change_me}
