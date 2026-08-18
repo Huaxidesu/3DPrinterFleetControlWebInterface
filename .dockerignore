@@ -1,11 +1,12 @@
 node_modules
-out
-out-server
-release
-dist
+/out
+/out-server
+/release
+/dist
 .git
 .github
-data
+# 只忽略仓库根目录运行数据，不要写成 data（会连 src/**/data 一起丢掉）
+/data
 .env
 .env.*
 !.env.example
@@ -13,9 +14,9 @@ data
 **/.DS_Store
 **/Thumbs.db
 .cursor
-coverage
-tmp
-temp
+/coverage
+/tmp
+/temp
 *.exe
 *.dmg
 *.AppImage

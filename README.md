@@ -4,7 +4,7 @@
 
 | 项目 | 说明 |
 |------|------|
-| 版本 | **4.0.2** |
+| 版本 | **4.0.3** |
 | 许可 | MIT |
 | 默认端口 | **17890** |
 | 默认管理员 | **admin** / **admin123**（登录后请立刻改密） |
@@ -149,7 +149,7 @@ docker compose up -d --build
 
 本机有 npm：`npm run docker:up` / `docker:down` / `docker:logs` / `docker:import`。
 
-软件设置「关于」里的更新：会覆盖宿主机源码，并（在已挂载 `docker.sock` 时）自动重建容器。正在跑的 4.0.1 及更早容器需要先手动 `docker compose up -d --build` 升到 4.0.2，之后即可在网页里一键覆盖。
+软件设置「关于」里的更新：会覆盖宿主机源码，并（在已挂载 `docker.sock` 时）自动重建容器。正在跑的 4.0.2 及更早容器需要先手动 `docker compose up -d --build` 升到 4.0.3，之后即可在网页里一键覆盖。
 
 ### 2.7 排错
 
