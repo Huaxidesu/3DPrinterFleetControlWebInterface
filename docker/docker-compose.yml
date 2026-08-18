@@ -10,24 +10,21 @@ services:
         aliases:
           - mysql
           - hanye-mysql
+    env_file:
+      - .env
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-hanye_root_change_me}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-hanye_printer}
       MYSQL_USER: ${MYSQL_USER:-hanye}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-hanye_pass_change_me}
     volumes:
-      - hanye_mysql_data:/var/lib/mysql
+      - hanye_mysql_v2:/var/lib/mysql
       - ../ops/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
       test:
         [
-          "CMD",
-          "mysqladmin",
-          "ping",
-          "-h",
-          "127.0.0.1",
-          "-uroot",
-          "-p${MYSQL_ROOT_PASSWORD:-hanye_root_change_me}"
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" || exit 1"
         ]
       interval: 5s
       timeout: 5s
@@ -52,11 +49,13 @@ services:
         condition: service_healthy
     ports:
       - "${PORT:-17890}:17890"
+    env_file:
+      - .env
     environment:
       USE_MYSQL: "1"
       PORT: "17890"
       DATA_ROOT: /app/data
-      MYSQL_HOST: hanye-mysql
+      MYSQL_HOST: mysql
       MYSQL_PORT: "3306"
       MYSQL_USER: ${MYSQL_USER:-hanye}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-hanye_pass_change_me}
@@ -94,4 +93,4 @@ services:
       start_period: 40s
 
 volumes:
-  hanye_mysql_data:
+  hanye_mysql_v2:

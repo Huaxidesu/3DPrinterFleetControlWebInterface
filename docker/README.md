@@ -31,6 +31,8 @@ Windows：进入本目录，双击 **`install.bat`**。
 
 软件设置「更新」：容器把新源码写到 **`/host-repo`（仓库根目录）** 后，会通过挂载的 **`docker.sock`** 自动 `compose up -d --build` 覆盖当前容器。若未挂载 sock，则需手动重新构建并启动。
 
+MySQL Access denied：在本目录执行 `./recreate-db.sh`（会清空数据库）。飞牛项目路径必须选本 `docker/` 文件夹，`.env` 也放这里。
+
 ## 常用命令
 
 ```bash
