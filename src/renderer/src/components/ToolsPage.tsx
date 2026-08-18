@@ -25,8 +25,8 @@ import {
   SaveOutlined,
   UploadOutlined
 } from '@ant-design/icons'
-import { brandsForTech, findBrand } from '../data/filamentBrands'
-import { FILAMENT_MATERIALS } from '../data/filamentMaterials'
+import { brandsForTech, findBrand } from '../filament/filamentBrands'
+import { FILAMENT_MATERIALS } from '../filament/filamentMaterials'
 import { useFilamentStore } from '../stores/filamentStore'
 import { useAuthStore } from '../stores/authStore'
 import type { SpoolRecord } from '../types/filament'

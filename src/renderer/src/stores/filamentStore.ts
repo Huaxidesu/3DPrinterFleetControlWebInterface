@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { findBrand } from '../data/filamentBrands'
+import { findBrand } from '../filament/filamentBrands'
 import type { SpoolAmsBinding, SpoolRecord } from '../types/filament'
 import {
   migrateSpoolRecord,

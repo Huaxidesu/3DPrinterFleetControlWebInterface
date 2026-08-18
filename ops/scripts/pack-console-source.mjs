@@ -21,8 +21,8 @@ const zipPath = join(repoRoot, zipName)
 const excludes = [
   '.git',
   'node_modules',
-  'dist',
-  'data',
+  '/dist/',
+  '/data/',
   '应用市场',
   '.env',
   '.env.local',

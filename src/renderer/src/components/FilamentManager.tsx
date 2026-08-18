@@ -26,8 +26,8 @@ import {
   RollbackOutlined
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import { brandsForTech, findBrand } from '../data/filamentBrands'
-import { materialLabel, materialsForTech } from '../data/filamentMaterials'
+import { brandsForTech, findBrand } from '../filament/filamentBrands'
+import { materialLabel, materialsForTech } from '../filament/filamentMaterials'
 import {
   isLowStock,
   selectVisibleSpools,

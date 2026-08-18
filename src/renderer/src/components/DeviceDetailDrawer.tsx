@@ -36,8 +36,8 @@ import { CameraPanel } from './CameraPanel'
 import { useFilamentStore } from '../stores/filamentStore'
 import { useAuthStore, useAuthGrants } from '../stores/authStore'
 import { isDeviceAiVisionEnabled } from '@shared/aiVision'
-import { findBrand } from '../data/filamentBrands'
-import { materialLabel } from '../data/filamentMaterials'
+import { findBrand } from '../filament/filamentBrands'
+import { materialLabel } from '../filament/filamentMaterials'
 import {
   findSpoolBoundToSlot,
   spoolBindings,

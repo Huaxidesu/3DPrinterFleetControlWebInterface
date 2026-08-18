@@ -4,8 +4,8 @@ import { deviceStatusKind } from './statusLabel'
 import { useFilamentStore, isLowStock } from '../stores/filamentStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { isClientMode, serverGet, serverSend } from '../api/serverClient'
-import { findBrand } from '../data/filamentBrands'
-import { materialLabel } from '../data/filamentMaterials'
+import { findBrand } from '../filament/filamentBrands'
+import { materialLabel } from '../filament/filamentMaterials'
 import { spoolBindings } from './spoolBinding'
 
 type SlotRemain = Record<number, number>
