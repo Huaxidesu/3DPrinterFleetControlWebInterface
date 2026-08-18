@@ -1,0 +1,671 @@
+/* saffron_loft — 藏红工坊：底栏导航 + 票券机位 + 入场动效 */
+@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,500;9..144,700;9..144,800&display=swap');
+
+[data-theme-pack='saffron_loft'] {
+  --sl-ink: #1a1410;
+  --sl-ink-deep: #100c09;
+  --sl-paper: #2a221c;
+  --sl-saffron: #f0a202;
+  --sl-mint: #7dcfb6;
+  --sl-cream: #f3ebe2;
+  --sl-muted: rgba(243, 235, 226, 0.55);
+  --sl-line: rgba(240, 162, 2, 0.22);
+  --sl-glow: 0 12px 40px rgba(240, 162, 2, 0.12);
+  font-family: 'Figtree', 'PingFang SC', 'Noto Sans SC', sans-serif;
+}
+
+[data-theme-pack='saffron_loft'] body,
+[data-theme-pack='saffron_loft'] .ant-typography,
+[data-theme-pack='saffron_loft'] .ant-btn,
+[data-theme-pack='saffron_loft'] .ant-menu,
+[data-theme-pack='saffron_loft'] .ant-input,
+[data-theme-pack='saffron_loft'] .ant-select {
+  font-family: 'Figtree', 'PingFang SC', 'Noto Sans SC', sans-serif !important;
+}
+
+[data-theme-pack='saffron_loft'] .theme-fullsite-root,
+[data-theme-pack='saffron_loft'] .theme-fullsite {
+  min-height: 100vh;
+  background: var(--sl-ink);
+  color: var(--sl-cream);
+}
+
+/* —— strip (removed) —— */
+[data-theme-pack='saffron_loft'] .sl-strip {
+  display: none !important;
+}
+
+/* —— world shell —— */
+[data-theme-pack='saffron_loft'] .sl-world {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto auto;
+  min-height: calc(100vh - 28px);
+  overflow: hidden;
+  background: transparent;
+}
+
+[data-theme-pack='saffron_loft'] .sl-ambient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 70% 50% at 12% -10%, rgba(240, 162, 2, 0.16), transparent 55%),
+    radial-gradient(ellipse 60% 45% at 92% 20%, rgba(125, 207, 182, 0.1), transparent 50%),
+    linear-gradient(180deg, var(--sl-ink-deep), var(--sl-ink) 40%, #17120e);
+}
+
+[data-theme-pack='saffron_loft'] .sl-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40px);
+  opacity: 0.55;
+  animation: sl-drift 18s ease-in-out infinite alternate;
+}
+
+[data-theme-pack='saffron_loft'] .sl-orb-a {
+  width: 340px;
+  height: 340px;
+  left: -80px;
+  top: 10%;
+  background: rgba(240, 162, 2, 0.35);
+}
+
+[data-theme-pack='saffron_loft'] .sl-orb-b {
+  width: 280px;
+  height: 280px;
+  right: -40px;
+  top: 35%;
+  background: rgba(125, 207, 182, 0.28);
+  animation-duration: 22s;
+  animation-delay: -4s;
+}
+
+[data-theme-pack='saffron_loft'] .sl-orb-c {
+  width: 220px;
+  height: 220px;
+  left: 40%;
+  bottom: 8%;
+  background: rgba(255, 122, 69, 0.18);
+  animation-duration: 26s;
+  animation-delay: -8s;
+}
+
+[data-theme-pack='saffron_loft'] .sl-grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.07;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+@keyframes sl-drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(24px, -18px, 0) scale(1.08);
+  }
+}
+
+/* —— top bar —— */
+[data-theme-pack='saffron_loft'] .sl-top {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 18px 10px;
+}
+
+[data-theme-pack='saffron_loft'] .sl-brand-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 8px 10px;
+  border-radius: 999px;
+  background: rgba(42, 34, 28, 0.88);
+  border: 1px solid var(--sl-line);
+  box-shadow: var(--sl-glow);
+  backdrop-filter: blur(10px);
+}
+
+[data-theme-pack='saffron_loft'] .sl-brand-pill .app-header-title {
+  margin: 0 !important;
+  font-family: 'Fraunces', Georgia, serif !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em !important;
+  color: var(--sl-cream) !important;
+}
+
+[data-theme-pack='saffron_loft'] .sl-brand-pill .app-header-logo {
+  border-radius: 50% !important;
+  border: 2px solid color-mix(in srgb, var(--sl-saffron) 55%, transparent);
+}
+
+[data-theme-pack='saffron_loft'] .sl-ticker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 16px;
+  border-radius: 16px;
+  background: rgba(16, 12, 9, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+[data-theme-pack='saffron_loft'] .sl-ticker-live {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #102018;
+  background: var(--sl-mint);
+  animation: sl-blink 1.6s ease-in-out infinite;
+}
+
+@keyframes sl-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+[data-theme-pack='saffron_loft'] .sl-ticker-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--sl-muted);
+  font-size: 13px;
+}
+
+[data-theme-pack='saffron_loft'] .sl-clock {
+  flex: 0 0 auto;
+  font-family: 'Fraunces', Georgia, serif;
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+  color: var(--sl-saffron);
+}
+
+[data-theme-pack='saffron_loft'] .sl-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+[data-theme-pack='saffron_loft'] .sl-actions .ant-btn {
+  border-radius: 999px !important;
+  border-color: var(--sl-line) !important;
+  background: rgba(42, 34, 28, 0.8) !important;
+  color: var(--sl-cream) !important;
+}
+
+[data-theme-pack='saffron_loft'] .sl-actions .ant-btn-primary {
+  background: var(--sl-saffron) !important;
+  border-color: var(--sl-saffron) !important;
+  color: #1a1410 !important;
+  font-weight: 700 !important;
+}
+
+[data-theme-pack='saffron_loft'] .sl-mobile {
+  position: relative;
+  z-index: 2;
+  padding: 0 18px;
+}
+
+/* —— stage —— */
+[data-theme-pack='saffron_loft'] .sl-stage {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 6px 18px 110px;
+}
+
+[data-theme-pack='saffron_loft'] .sl-stage-cap {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+[data-theme-pack='saffron_loft'] .sl-kicker {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--sl-mint);
+  margin-bottom: 4px;
+}
+
+[data-theme-pack='saffron_loft'] .sl-stage-title {
+  margin: 0;
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: clamp(22px, 3vw, 34px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--sl-cream);
+}
+
+[data-theme-pack='saffron_loft'] .sl-stage-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(42, 34, 28, 0.75);
+  border: 1px solid var(--sl-line);
+  color: var(--sl-muted);
+  font-size: 13px;
+}
+
+[data-theme-pack='saffron_loft'] .sl-stage-meta em {
+  font-style: normal;
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 700;
+  color: var(--sl-saffron);
+  margin-right: 4px;
+}
+
+[data-theme-pack='saffron_loft'] .sl-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sl-mint);
+  box-shadow: 0 0 0 0 rgba(125, 207, 182, 0.55);
+  animation: sl-pulse 1.8s ease-out infinite;
+}
+
+@keyframes sl-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(125, 207, 182, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(125, 207, 182, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(125, 207, 182, 0);
+  }
+}
+
+[data-theme-pack='saffron_loft'] .sl-main {
+  min-height: 0;
+  flex: 1;
+}
+
+/* —— bottom dock nav (completely different from side rail) —— */
+[data-theme-pack='saffron_loft'] .sl-dock {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 40;
+  width: min(1080px, calc(100vw - 16px));
+  pointer-events: none;
+}
+
+[data-theme-pack='saffron_loft'] .sl-dock-inner {
+  pointer-events: auto;
+  padding: 6px 8px;
+  border-radius: 18px;
+  background: rgba(22, 17, 13, 0.92);
+  border: 1px solid var(--sl-line);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45), var(--sl-glow);
+  backdrop-filter: blur(16px) saturate(1.2);
+  max-height: 96px;
+  overflow: auto;
+}
+
+/* Force host SideNav into compact horizontal chips */
+[data-theme-pack='saffron_loft'] .sl-dock .side-nav {
+  width: 100% !important;
+  max-width: 100% !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+
+[data-theme-pack='saffron_loft'] .sl-dock .side-nav-collapse-bar {
+  display: none !important;
+}
+
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-inline,
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-vertical,
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-root,
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: wrap !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+  align-content: flex-start !important;
+  overflow: visible !important;
+  gap: 6px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  border-inline-end: 0 !important;
+  padding: 2px !important;
+  background: transparent !important;
+}
+
+/* Ant inline items default to width:100% — that made one giant FDM pill */
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-item,
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-submenu,
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-submenu-title,
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-inline > .ant-menu-item,
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-inline > .ant-menu-submenu {
+  flex: 0 0 auto !important;
+  flex-grow: 0 !important;
+  flex-shrink: 0 !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  margin: 0 !important;
+  height: 34px !important;
+  line-height: 34px !important;
+  padding: 0 12px !important;
+  border-radius: 999px !important;
+  color: var(--sl-muted) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+}
+
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-submenu {
+  padding: 0 !important;
+}
+
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-submenu-title {
+  width: auto !important;
+  height: 34px !important;
+  line-height: 34px !important;
+  padding: 0 12px !important;
+  margin: 0 !important;
+  border-radius: 999px !important;
+}
+
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-item .anticon,
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-submenu-title .anticon {
+  font-size: 13px !important;
+  margin-inline-end: 6px !important;
+}
+
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-title-content {
+  margin-inline-start: 0 !important;
+}
+
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-item:hover,
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-submenu-title:hover {
+  color: var(--sl-cream) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-item-selected,
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  color: #1a1410 !important;
+  background: var(--sl-saffron) !important;
+  font-weight: 700 !important;
+  box-shadow: 0 4px 14px rgba(240, 162, 2, 0.3);
+}
+
+/* Fold nested inline lists — keep top-level chips only in the dock */
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-sub.ant-menu-inline,
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-submenu > .ant-menu.ant-menu-sub {
+  display: none !important;
+  height: 0 !important;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  visibility: hidden !important;
+}
+
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-submenu-arrow {
+  inset-inline-end: 8px !important;
+  opacity: 0.55;
+}
+
+[data-theme-pack='saffron_loft'] .sl-dock .ant-menu-inline-collapsed {
+  width: auto !important;
+}
+
+[data-theme-pack='saffron_loft'] .sl-footer {
+  position: relative;
+  z-index: 1;
+  padding: 0 18px 12px;
+  color: var(--sl-muted);
+  font-size: 11px;
+}
+
+[data-theme-pack='saffron_loft'] .sl-foot-note {
+  opacity: 0.55;
+  letter-spacing: 0.06em;
+}
+
+/* —— brand filter / page bar —— */
+[data-theme-pack='saffron_loft'] .brand-filter-bar {
+  padding: 12px 14px !important;
+  border-radius: 18px !important;
+  background: rgba(42, 34, 28, 0.72) !important;
+  border: 1px solid var(--sl-line) !important;
+  margin-bottom: 12px;
+}
+
+[data-theme-pack='saffron_loft'] .brand-filter-tag {
+  border-radius: 999px !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(16, 12, 9, 0.45) !important;
+  color: var(--sl-muted) !important;
+}
+
+[data-theme-pack='saffron_loft'] .brand-filter-tag.active {
+  background: color-mix(in srgb, var(--sl-saffron) 22%, transparent) !important;
+  border-color: var(--sl-saffron) !important;
+  color: var(--sl-cream) !important;
+}
+
+[data-theme-pack='saffron_loft'] .device-page-bar {
+  border-radius: 16px !important;
+  border: 1px solid var(--sl-line) !important;
+  background: rgba(42, 34, 28, 0.65) !important;
+}
+
+/* —— ticket cards (radically different from default cards) —— */
+[data-theme-pack='saffron_loft'] .device-grid.device-grid-grid {
+  gap: 16px !important;
+}
+
+[data-theme-pack='saffron_loft'] .device-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 268px !important;
+  padding: 16px 16px 14px 18px !important;
+  border-radius: 22px 22px 22px 8px !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background:
+    linear-gradient(145deg, rgba(58, 46, 36, 0.95), rgba(32, 25, 20, 0.98)) !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28) !important;
+  transform-origin: 50% 80%;
+  transition:
+    transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.2s ease,
+    box-shadow 0.35s ease !important;
+  animation: sl-card-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--sl-i, 0) * 45ms);
+}
+
+[data-theme-pack='saffron_loft'] .device-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--sl-saffron), var(--sl-mint));
+}
+
+[data-theme-pack='saffron_loft'] .device-card::after {
+  content: 'TICKET';
+  position: absolute;
+  right: -18px;
+  top: 18px;
+  transform: rotate(90deg);
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  color: rgba(243, 235, 226, 0.22);
+  font-weight: 700;
+  pointer-events: none;
+}
+
+[data-theme-pack='saffron_loft'] .device-card:hover {
+  transform: translateY(-6px) rotate(-0.4deg) !important;
+  border-color: color-mix(in srgb, var(--sl-saffron) 55%, transparent) !important;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38), var(--sl-glow) !important;
+}
+
+[data-theme-pack='saffron_loft'] .device-card.selected {
+  border-color: var(--sl-saffron) !important;
+  box-shadow: 0 0 0 1px var(--sl-saffron), var(--sl-glow) !important;
+}
+
+[data-theme-pack='saffron_loft'] .device-card.state-finished::before,
+[data-theme-pack='saffron_loft'] .device-card .device-card-footer.state-finished ~ * {
+  /* keep rail mint when finished via footer class on card if present */
+}
+
+[data-theme-pack='saffron_loft'] .device-card .device-card-footer.state-finished {
+  color: var(--sl-mint) !important;
+}
+
+@keyframes sl-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+[data-theme-pack='saffron_loft'] .device-card-name {
+  font-family: 'Fraunces', Georgia, serif !important;
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.01em !important;
+  color: var(--sl-cream) !important;
+}
+
+[data-theme-pack='saffron_loft'] .device-card-msg {
+  color: var(--sl-muted) !important;
+  font-size: 12px !important;
+}
+
+[data-theme-pack='saffron_loft'] .card-progress {
+  height: 8px !important;
+  border-radius: 999px !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  overflow: hidden !important;
+}
+
+[data-theme-pack='saffron_loft'] .card-progress-bar {
+  border-radius: inherit !important;
+  background: linear-gradient(90deg, var(--sl-saffron), var(--sl-mint)) !important;
+  position: relative;
+}
+
+[data-theme-pack='saffron_loft'] .card-progress-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  transform: translateX(-100%);
+  animation: sl-shimmer 2.2s ease-in-out infinite;
+}
+
+@keyframes sl-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+[data-theme-pack='saffron_loft'] .temp-pill {
+  border-radius: 12px !important;
+  background: rgba(16, 12, 9, 0.45) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+[data-theme-pack='saffron_loft'] .device-card-footer {
+  border-top: 1px dashed rgba(255, 255, 255, 0.1) !important;
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+[data-theme-pack='saffron_loft'] .tech-chip,
+[data-theme-pack='saffron_loft'] .brand-chip {
+  border-radius: 999px !important;
+}
+
+[data-theme-pack='saffron_loft'] .sl-card-stub {
+  margin-top: 8px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--sl-mint) 80%, #fff);
+  opacity: 0.75;
+}
+
+/* detail drawer */
+[data-theme-pack='saffron_loft'] .ant-drawer-content {
+  background: var(--sl-ink-deep) !important;
+}
+
+[data-theme-pack='saffron_loft'] .ant-drawer-header {
+  border-bottom-color: var(--sl-line) !important;
+  background: rgba(26, 20, 16, 0.96) !important;
+}
+
+[data-theme-pack='saffron_loft'] .ant-drawer-title {
+  font-family: 'Fraunces', Georgia, serif !important;
+  color: var(--sl-cream) !important;
+}
+
+/* hide classic sider leftovers if any */
+[data-theme-pack='saffron_loft'] .app-sider,
+[data-theme-pack='saffron_loft'] .app-layout-sider {
+  display: none !important;
+}
+
+@media (max-width: 900px) {
+  [data-theme-pack='saffron_loft'] .sl-top {
+    grid-template-columns: 1fr;
+  }
+  [data-theme-pack='saffron_loft'] .sl-ticker {
+    order: 3;
+  }
+  [data-theme-pack='saffron_loft'] .sl-stage {
+    padding-bottom: 120px;
+  }
+  [data-theme-pack='saffron_loft'] .sl-dock {
+    bottom: 10px;
+    width: calc(100vw - 12px);
+  }
+  [data-theme-pack='saffron_loft'] .sl-dock-inner {
+    max-height: 110px;
+  }
+}

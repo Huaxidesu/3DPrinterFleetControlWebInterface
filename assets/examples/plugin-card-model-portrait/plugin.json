@@ -1,16 +1,22 @@
 {
   "identifier": "card_model_portrait",
   "name": "机型肖像卡片",
-  "version": "1.1.0",
-  "description": "按所设机型严格匹配免费产品图（标题须含机型），并重排设备卡片；匹配失败用默认透明图。无设置页。",
+  "version": "1.4.1",
+  "description": "本地离线机型肖像；软件设置可补充/覆盖机型 PNG（修复上传预览与卡片显示）。",
   "copyright": "hanye",
   "available": true,
-  "hooks": ["register"],
+  "hooks": [
+    "register"
+  ],
   "vars": [],
-  "clientJs": ["client.js"],
+  "clientJs": [
+    "client.js"
+  ],
   "themeCss": "theme.css",
   "mainFile": "main.js",
   "installFile": "install.js",
   "uninstallFile": "uninstall.js",
-  "compatibleSoftwares": ["hanye-printer-monitor"]
+  "compatibleSoftwares": [
+    "hanye-printer-monitor"
+  ]
 }

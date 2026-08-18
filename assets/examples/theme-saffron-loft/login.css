@@ -1,0 +1,145 @@
+/* saffron_loft login */
+@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700&family=Fraunces:opsz,wght@9..144,700;9..144,800&display=swap');
+
+[data-theme-pack='saffron_loft'] .login-page-root.login-layout-fullsite,
+[data-theme-pack='saffron_loft'] .theme-fullsite-login {
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  background: #100c09;
+  font-family: 'Figtree', 'PingFang SC', sans-serif;
+  color: #f3ebe2;
+}
+
+[data-theme-pack='saffron_loft'] .sl-login {
+  display: grid;
+  grid-template-columns: 1.2fr 0.9fr;
+  min-height: 100vh;
+}
+
+[data-theme-pack='saffron_loft'] .sl-login-hero-pane {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  align-content: end;
+  padding: 48px;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 20%, rgba(240, 162, 2, 0.22), transparent 55%),
+    radial-gradient(ellipse 60% 50% at 80% 70%, rgba(125, 207, 182, 0.14), transparent 50%),
+    linear-gradient(160deg, #1a1410, #100c09);
+  border-right: 1px solid rgba(240, 162, 2, 0.22);
+}
+
+[data-theme-pack='saffron_loft'] .sl-login-ambient {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+[data-theme-pack='saffron_loft'] .sl-login-ambient .sl-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(48px);
+  opacity: 0.5;
+  animation: sl-login-drift 16s ease-in-out infinite alternate;
+}
+
+[data-theme-pack='saffron_loft'] .sl-login-ambient .sl-orb-a {
+  width: 280px;
+  height: 280px;
+  left: 10%;
+  top: 18%;
+  background: rgba(240, 162, 2, 0.4);
+}
+
+[data-theme-pack='saffron_loft'] .sl-login-ambient .sl-orb-b {
+  width: 220px;
+  height: 220px;
+  right: 12%;
+  bottom: 22%;
+  background: rgba(125, 207, 182, 0.35);
+  animation-delay: -5s;
+}
+
+@keyframes sl-login-drift {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-24px);
+  }
+}
+
+[data-theme-pack='saffron_loft'] .sl-login-copy {
+  position: relative;
+  z-index: 1;
+  max-width: 420px;
+}
+
+[data-theme-pack='saffron_loft'] .sl-login-copy .sl-kicker {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: #7dcfb6;
+  margin-bottom: 10px;
+}
+
+[data-theme-pack='saffron_loft'] .sl-login-copy h1 {
+  margin: 0 0 12px;
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: clamp(36px, 5vw, 56px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: #f3ebe2;
+}
+
+[data-theme-pack='saffron_loft'] .sl-login-copy p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: rgba(243, 235, 226, 0.62);
+}
+
+[data-theme-pack='saffron_loft'] .sl-login-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 40px clamp(24px, 5vw, 56px);
+  background: #16110e;
+}
+
+[data-theme-pack='saffron_loft'] .sl-login-panel-cap {
+  margin-bottom: 18px;
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: #f0a202;
+}
+
+[data-theme-pack='saffron_loft'] .sl-login-form .ant-btn-primary {
+  background: #f0a202 !important;
+  border-color: #f0a202 !important;
+  color: #1a1410 !important;
+  font-weight: 700 !important;
+  border-radius: 999px !important;
+  height: 42px !important;
+}
+
+[data-theme-pack='saffron_loft'] .sl-login-form .ant-input,
+[data-theme-pack='saffron_loft'] .sl-login-form .ant-input-affix-wrapper {
+  border-radius: 12px !important;
+  background: rgba(42, 34, 28, 0.8) !important;
+  border-color: rgba(240, 162, 2, 0.25) !important;
+  color: #f3ebe2 !important;
+}
+
+@media (max-width: 860px) {
+  [data-theme-pack='saffron_loft'] .sl-login {
+    grid-template-columns: 1fr;
+  }
+  [data-theme-pack='saffron_loft'] .sl-login-hero-pane {
+    min-height: 36vh;
+    border-right: 0;
+    border-bottom: 1px solid rgba(240, 162, 2, 0.22);
+    padding: 28px;
+  }
+}

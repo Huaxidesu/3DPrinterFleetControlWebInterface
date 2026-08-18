@@ -7,6 +7,32 @@ try {
 } catch {
   /* ignore */
 }
+
+/** 本地测试：读取仓库根 .env（已存在的环境变量不覆盖） */
+function loadDotEnv(file = join(process.cwd(), '.env')) {
+  if (!existsSync(file)) return
+  try {
+    for (const raw of readFileSync(file, 'utf8').split('\n')) {
+      const line = raw.trim()
+      if (!line || line.startsWith('#')) continue
+      const i = line.indexOf('=')
+      if (i <= 0) continue
+      const key = line.slice(0, i).trim()
+      if (!key || process.env[key] !== undefined) continue
+      let val = line.slice(i + 1).trim()
+      if (
+        (val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))
+      ) {
+        val = val.slice(1, -1)
+      }
+      process.env[key] = val
+    }
+  } catch {
+    /* ignore */
+  }
+}
+loadDotEnv()
 import { ApiServer, defaultSettings, normalizeSettings, type AppSettings } from '../main/api/server'
 import { UserStore } from '../main/auth/users'
 import { PrintRequestStore } from '../main/auth/printRequests'

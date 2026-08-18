@@ -10,7 +10,7 @@
 import http from 'http'
 import https from 'https'
 import { URL } from 'url'
-import { getMarketBaseUrl, listMarketBaseCandidates, resolveMarketBaseUrl, setMarketBaseUrl } from '../marketplace/catalog'
+import { getMarketBaseUrl, resolveMarketBaseUrl, setMarketBaseUrl } from '../marketplace/catalog'
 
 export type OwnedApp = {
   appIdentifier: string
@@ -168,7 +168,16 @@ function parseHeartbeatData(json: Record<string, unknown> | null): HeartbeatResu
   }
 }
 
-/** 心跳：确认本机登录用户 + 已购列表 */
+const HB_CACHE_MS = 5_000
+const HB_TIMEOUT_MS = 8_000
+let hbMemo: { key: string; at: number; result: HeartbeatResult } | null = null
+const hbInflight = new Map<string, Promise<HeartbeatResult>>()
+
+function heartbeatKey(deviceId: string, appIdentifier: string | undefined, base: string): string {
+  return `${deviceId}|${appIdentifier || ''}|${base}`
+}
+
+/** 心跳：确认本机登录用户 + 已购列表（只打当前锁定线路，短缓存避免登录叠打） */
 export async function marketHeartbeat(input: {
   marketBase?: string
   deviceId: string
@@ -189,61 +198,73 @@ export async function marketHeartbeat(input: {
   }
 
   const preferred = String(input.marketBase || (await resolveMarketBaseUrl(false))).replace(/\/$/, '')
-  const bases = input.marketBase
-    ? [preferred]
-    : Array.from(new Set([preferred, ...listMarketBaseCandidates()]))
+  const key = heartbeatKey(deviceId, input.appIdentifier, preferred)
+  if (hbMemo && hbMemo.key === key && Date.now() - hbMemo.at < HB_CACHE_MS) {
+    return hbMemo.result
+  }
+  const pending = hbInflight.get(key)
+  if (pending) return pending
 
-  try {
-    let lastErr: unknown
-    let payload: { status: number; text: string } | null = null
-    let usedBase = preferred
-    outer: for (const tryBase of bases) {
-      const root = String(tryBase).replace(/\/$/, '')
+  const run = (async (): Promise<HeartbeatResult> => {
+    try {
+      let lastErr: unknown
+      let payload: { status: number; text: string } | null = null
+      const timeoutMs = input.timeoutMs ?? HB_TIMEOUT_MS
       for (let i = 0; i < 2; i++) {
         try {
           payload = await postJson(
-            `${root}/api/license/heartbeat`,
+            `${preferred}/api/license/heartbeat`,
             {
               deviceId,
               ...(input.appIdentifier ? { appIdentifier: input.appIdentifier } : {})
             },
-            input.timeoutMs ?? 15_000
+            timeoutMs
           )
-          usedBase = root
           lastErr = null
-          break outer
+          break
         } catch (e) {
           lastErr = e
-          await new Promise((r) => setTimeout(r, 300 * (i + 1)))
+          if (i === 0) await new Promise((r) => setTimeout(r, 200))
         }
       }
-    }
-    if (!payload) throw lastErr || new Error('heartbeat failed')
-    if (!input.marketBase) setMarketBaseUrl(usedBase)
-    let json: Record<string, unknown> | null = null
-    try {
-      json = JSON.parse(payload.text) as Record<string, unknown>
-    } catch {
+      if (!payload) throw lastErr || new Error('heartbeat failed')
+      setMarketBaseUrl(preferred)
+      let json: Record<string, unknown> | null = null
+      try {
+        json = JSON.parse(payload.text) as Record<string, unknown>
+      } catch {
+        return {
+          ok: false,
+          allowUse: false,
+          genuine: false,
+          message: `市场返回非 JSON（HTTP ${payload.status}）`,
+          ownedApps: [],
+          nextHeartbeatSec: 60
+        }
+      }
+      const result = parseHeartbeatData(json)
+      if (result.allowUse) {
+        hbMemo = { key, at: Date.now(), result }
+      }
+      return result
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
       return {
         ok: false,
         allowUse: false,
         genuine: false,
-        message: `市场返回非 JSON（HTTP ${payload.status}）`,
+        message: /timeout/i.test(msg) ? '心跳超时' : `心跳失败：${msg}`,
         ownedApps: [],
         nextHeartbeatSec: 60
       }
     }
-    return parseHeartbeatData(json)
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    return {
-      ok: false,
-      allowUse: false,
-      genuine: false,
-      message: /timeout/i.test(msg) ? '心跳超时' : `心跳失败：${msg}`,
-      ownedApps: [],
-      nextHeartbeatSec: 60
-    }
+  })()
+
+  hbInflight.set(key, run)
+  try {
+    return await run
+  } finally {
+    hbInflight.delete(key)
   }
 }
 
@@ -279,9 +300,6 @@ export async function checkInstalledPlugins(input: {
   timeoutMs?: number
 }): Promise<CheckInstalledResult> {
   const preferred = String(input.marketBase || (await resolveMarketBaseUrl(false))).replace(/\/$/, '')
-  const bases = input.marketBase
-    ? [preferred]
-    : Array.from(new Set([preferred, ...listMarketBaseCandidates()]))
   const deviceId = String(input.deviceId || '').trim()
   const items = (input.items || []).slice(0, 100)
   if (!items.length) {
@@ -314,12 +332,11 @@ export async function checkInstalledPlugins(input: {
   try {
     let lastErr: unknown
     let payload: { status: number; text: string } | null = null
-    let usedBase = preferred
-    for (const tryBase of bases) {
-      const root = String(tryBase).replace(/\/$/, '')
+    const timeoutMs = input.timeoutMs ?? HB_TIMEOUT_MS
+    for (let i = 0; i < 2; i++) {
       try {
         payload = await postJson(
-          `${root}/api/license/check-installed`,
+          `${preferred}/api/license/check-installed`,
           {
             deviceId,
             items: items.map((it) => ({
@@ -327,17 +344,17 @@ export async function checkInstalledPlugins(input: {
               ...(it.type ? { type: String(it.type).toUpperCase() } : {})
             }))
           },
-          input.timeoutMs ?? 15_000
+          timeoutMs
         )
-        usedBase = root
         lastErr = null
         break
       } catch (e) {
         lastErr = e
+        if (i === 0) await new Promise((r) => setTimeout(r, 200))
       }
     }
     if (!payload) throw lastErr || new Error('check-installed failed')
-    if (!input.marketBase) setMarketBaseUrl(usedBase)
+    setMarketBaseUrl(preferred)
 
     let json: Record<string, unknown> | null = null
     try {

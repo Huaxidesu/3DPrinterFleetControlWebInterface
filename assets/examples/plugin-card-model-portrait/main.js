@@ -1,11 +1,10 @@
 /**
- * card_model_portrait — 免费图源解析机型图（Openverse / Wikimedia，无需 API Key）
- * 严格按「设置的机型」匹配：标题/文件名必须含机型关键词，否则回退默认图。
- * 无设置页；结果缓存到插件私有 JSON。
+ * card_model_portrait — 本地机型肖像（离线）+ 用户可在设置页补充/修改 PNG
  */
 
-/** 缓存协议版本：提高后自动忽略旧的松散匹配结果 */
-const MATCH_VERSION = 3
+const MATCH_VERSION = 6
+const STATIC_BASE = '/api/v1/plugins/card_model_portrait/static/'
+const FILE_BASE = '/api/v1/card-model-portrait/file?name='
 
 function cacheKey(brand, model) {
   const b = String(brand || '')
@@ -19,22 +18,12 @@ function cacheKey(brand, model) {
   return `${b}|${m}`
 }
 
-function brandNiceName(b) {
-  const x = String(b || '')
-    .trim()
+function compactAlnum(s) {
+  return String(s || '')
     .toLowerCase()
-  if (x === 'bambu' || x === 'bambulab') return 'Bambu Lab'
-  if (x === 'creality') return 'Creality'
-  if (x === 'elegoo') return 'Elegoo'
-  if (x === 'anycubic') return 'Anycubic'
-  if (x === 'prusa') return 'Prusa'
-  if (x === 'flashforge') return 'Flashforge'
-  if (x === 'anker' || x === 'ankermake') return 'AnkerMake'
-  if (x === 'voron') return 'Voron'
-  return String(b || '').trim()
+    .replace(/[^a-z0-9]+/g, '')
 }
 
-/** 机型别名，提高命中率（仍要求与设置机型对应） */
 function modelAliases(model) {
   const m = String(model || '')
     .trim()
@@ -44,278 +33,489 @@ function modelAliases(model) {
   const map = {
     x1c: ['x1 carbon', 'x1-carbon', 'x1c'],
     'x1 carbon': ['x1c', 'x1-carbon'],
+    'x1-carbon': ['x1c', 'x1 carbon'],
     p1s: ['p1s', 'p1-s'],
     p1p: ['p1p', 'p1-p'],
-    a1: ['a1', 'bambu a1'],
+    a1: ['a1'],
     'a1 mini': ['a1mini', 'a1-mini'],
     a1mini: ['a1 mini', 'a1-mini'],
-    k1: ['k1', 'creality k1'],
+    p2s: ['p2s'],
+    x1e: ['x1e'],
+    k1: ['k1'],
     'k1 max': ['k1max', 'k1-max'],
+    k1max: ['k1 max', 'k1-max'],
     k1c: ['k1c'],
-    'k1c': ['k1 c'],
-    ender3: ['ender-3', 'ender 3'],
-    'ender 3': ['ender-3', 'ender3'],
-    ender3v3: ['ender-3 v3', 'ender 3 v3'],
-    mk4: ['mk4', 'prusa mk4'],
-    mini: ['prusa mini']
+    k2: ['k2'],
+    'ender 3 v3': ['ender-3-v3', 'ender3v3'],
+    'ender-3 v3': ['ender 3 v3', 'ender3v3'],
+    'neptune 4': ['neptune-4', 'neptune4'],
+    'mars 5': ['mars-5', 'mars5'],
+    'kobra 2': ['kobra-2', 'kobra2'],
+    'kobra 3': ['kobra-3', 'kobra3'],
+    artisan: ['artisan'],
+    j1: ['j1'],
+    'adventurer 5m': ['adventurer-5m', 'adventurer5m'],
+    plus4: ['plus 4', 'qidi plus4'],
+    'voron 2.4': ['voron2.4', 'voron-2-4', '2.4']
   }
   const hit = map[m]
-  if (hit) {
-    for (const a of hit) if (!aliases.includes(a)) aliases.push(a)
-  }
-  // 去空格紧凑式
-  const compact = m.replace(/[^a-z0-9]+/g, '')
+  if (hit) for (const a of hit) if (!aliases.includes(a)) aliases.push(a)
+  const compact = compactAlnum(m)
   if (compact && !aliases.includes(compact)) aliases.push(compact)
   return aliases
 }
 
-function modelTokens(model) {
-  const m = String(model || '')
+function normalizeBrandKey(brand, model) {
+  const b = String(brand || '')
     .trim()
     .toLowerCase()
-  const parts = m.split(/[^a-z0-9]+/).filter((p) => p && p.length >= 1)
-  // 过滤过泛词
-  const stop = new Set(['3d', 'printer', 'lab', 'the', 'and', 'pro', 'plus'])
-  return parts.filter((p) => !stop.has(p) || parts.length === 1)
+  if (b === 'bambu' || b === 'bambulab' || b === 'bambu lab' || b === '拓竹') return 'bambu'
+  if (b === 'creality' || b === '创想' || b === '创想三维') return 'creality'
+  if (b === 'elegoo' || b === '爱乐库') return 'elegoo'
+  if (b === 'anycubic' || b === '纵维' || b === '纵维立方') return 'anycubic'
+  if (b === 'snapmaker') return 'snapmaker'
+  if (b === 'flashforge' || b === '闪铸') return 'flashforge'
+  if (b === 'qidi' || b === '启迪') return 'qidi'
+  if (b === 'voron' || b === 'klipper') return 'voron'
+  if (b) return b.replace(/\s+/g, '')
+
+  const m = compactAlnum(model)
+  if (/^(x1c|x1carbon|p1s|p1p|a1|a1mini|p2s|x1e|h2d)/.test(m)) return 'bambu'
+  if (/^(k1|k1max|k1c|k2|ender)/.test(m)) return 'creality'
+  if (/^(neptune|mars|saturn)/.test(m)) return 'elegoo'
+  if (/^(kobra|photon)/.test(m)) return 'anycubic'
+  if (/^(artisan|j1)/.test(m)) return 'snapmaker'
+  if (/^(adventurer)/.test(m)) return 'flashforge'
+  if (/^(plus4)/.test(m)) return 'qidi'
+  if (/voron|trident|v0/.test(m)) return 'voron'
+  return 'custom'
 }
 
-function buildQueries(brand, model) {
-  const m = String(model || '').trim()
-  if (!m) return []
-  const bn = brandNiceName(brand)
-  const aliases = modelAliases(m)
-  const q = []
-  // 精确优先：引号机型 + 品牌
-  for (const a of aliases.slice(0, 3)) {
-    if (bn) q.push(`"${a}" ${bn} 3D printer`)
-    q.push(`"${a}" 3D printer`)
-    if (bn) q.push(`${bn} ${a}`)
-    q.push(a)
+function brandNice(brand) {
+  const map = {
+    bambu: 'Bambu Lab',
+    creality: '创想三维',
+    elegoo: '爱乐库',
+    anycubic: '纵维立方',
+    snapmaker: 'Snapmaker',
+    flashforge: '闪铸',
+    qidi: '启迪',
+    voron: 'Voron',
+    custom: '自定义'
   }
-  return q
+  return map[brand] || brand || '自定义'
 }
 
-async function fetchJson(api, url, timeoutMs = 9000) {
-  const fetchFn = typeof api.fetch === 'function' ? api.fetch.bind(api) : fetch
-  const ctrl = new AbortController()
-  const t = setTimeout(() => ctrl.abort(), timeoutMs)
+function loadCatalog(api) {
   try {
-    const res = await fetchFn(url, {
-      signal: ctrl.signal,
-      headers: { Accept: 'application/json', 'User-Agent': 'hanye-card-model-portrait/1.1' }
-    })
-    if (!res.ok) return null
-    return await res.json()
+    const fs = require('fs')
+    const path = require('path')
+    const candidates = [
+      path.join(__dirname, 'static', 'models', 'catalog.json'),
+      typeof api.pluginDir === 'function'
+        ? path.join(api.pluginDir(), 'static', 'models', 'catalog.json')
+        : ''
+    ].filter(Boolean)
+    for (const p of candidates) {
+      if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf8'))
+    }
   } catch {
-    return null
-  } finally {
-    clearTimeout(t)
+    /* ignore */
   }
+  return api.readJson('catalog.json', null)
 }
 
-function textBlob(c) {
-  return `${c.title || ''} ${c.filename || ''} ${c.url || ''}`.toLowerCase()
+function loadOverrides(api) {
+  const o = api.readJson('overrides.json', null)
+  if (o && o.items && typeof o.items === 'object') return o
+  return { version: 1, items: {} }
 }
 
-function compactAlnum(s) {
-  return String(s || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '')
+function saveOverrides(api, data) {
+  api.writeJson('overrides.json', data)
 }
 
-/**
- * 打分：必须能证明与机型相关，否则返回 -1（丢弃）
- */
-function scoreCandidate(c, brand, model) {
-  if (!c || !c.url) return -1
-  const text = textBlob(c)
-  const compactText = compactAlnum(text)
+function lookupOverride(api, brand, model) {
+  const ov = loadOverrides(api)
+  const brandKey = normalizeBrandKey(brand, model)
   const aliases = modelAliases(model)
-  const tokens = modelTokens(model)
-  const bn = brandNiceName(brand).toLowerCase()
-  const brandBits = bn
-    .split(/\s+/)
-    .map((x) => x.toLowerCase())
-    .filter((x) => x.length >= 3)
-
-  let score = 0
-  let modelHit = false
-
+  const keys = []
   for (const a of aliases) {
-    if (!a) continue
-    if (text.includes(a)) {
-      modelHit = true
-      score += a.length >= 4 ? 40 : 28
-      break
-    }
-    const ca = compactAlnum(a)
-    if (ca.length >= 2 && compactText.includes(ca)) {
-      modelHit = true
-      score += ca.length >= 4 ? 36 : 24
-      break
-    }
+    keys.push(`${brandKey}|${a}`)
+    keys.push(`${brandKey}|${compactAlnum(a)}`)
+    keys.push(cacheKey(brandKey, a))
   }
-
-  if (!modelHit && tokens.length) {
-    const need = tokens.filter((t) => t.length >= 2)
-    if (need.length && need.every((t) => text.includes(t) || compactText.includes(t))) {
-      modelHit = true
-      score += 22
-    }
+  for (const k of keys) {
+    const hit = ov.items[k]
+    if (hit && hit.file) return { key: k, ...hit }
   }
-
-  if (!modelHit) return -1
-
-  // 品牌加分（非必须）
-  for (const b of brandBits) {
-    if (text.includes(b)) score += 8
-  }
-  if (/\b3d\b|printer|filament|fdm|resin|sla/i.test(text)) score += 6
-
-  const mime = String(c.mime || '').toLowerCase()
-  const url = String(c.url || '')
-  if (mime.includes('png') || /\.png(\?|$)/i.test(url)) score += 12
-  else if (mime.includes('webp') || /\.webp(\?|$)/i.test(url)) score += 4
-  else if (mime.includes('jpeg') || mime.includes('jpg') || /\.jpe?g(\?|$)/i.test(url)) score += 1
-
-  // 排除明显无关
-  if (/logo only|icon pack|favicon|sprite|banner ad/i.test(text)) score -= 20
-  if (/screenshot of website|youtube thumbnail/i.test(text)) score -= 15
-
-  return score
+  return null
 }
 
-function pickBest(candidates, brand, model) {
-  let best = null
-  let bestScore = 0
-  for (const c of candidates) {
-    const s = scoreCandidate(c, brand, model)
-    if (s < 20) continue // 门槛：必须明显相关
-    if (s > bestScore) {
-      bestScore = s
-      best = c
+function lookupLocalFile(catalog, brand, model) {
+  if (!catalog || !catalog.byModel) return ''
+  const brandKey = normalizeBrandKey(brand, model)
+  const aliases = modelAliases(model)
+  const keys = []
+  for (const a of aliases) {
+    if (brandKey) {
+      keys.push(`${brandKey}|${a}`)
+      keys.push(`${brandKey}|${compactAlnum(a)}`)
+    }
+    keys.push(a)
+    keys.push(compactAlnum(a))
+  }
+  for (const k of keys) {
+    const hit = catalog.byModel[k] || catalog.byModel[String(k).toLowerCase()]
+    if (hit) return String(hit)
+  }
+  const images = Array.isArray(catalog.images) ? catalog.images : []
+  const want = new Set(aliases.map((a) => compactAlnum(a)).filter(Boolean))
+  for (const img of images) {
+    if (brandKey && img.brand && img.brand !== brandKey && brandKey !== 'custom') continue
+    const models = Array.isArray(img.models) ? img.models : []
+    for (const m of models) {
+      if (want.has(compactAlnum(m))) return String(img.file || '')
     }
   }
-  if (!best) return null
-  return {
-    url: String(best.url),
-    source: best.source || 'web',
-    score: bestScore,
-    title: best.title || ''
-  }
+  return ''
 }
 
-async function searchOpenverse(api, query) {
-  const u =
-    'https://api.openverse.org/v1/images/?q=' +
-    encodeURIComponent(query) +
-    '&page_size=12&license_type=commercial,modification'
-  const data = await fetchJson(api, u)
-  const results = (data && data.results) || []
-  return results.map((r) => ({
-    url: r.url || r.thumbnail || '',
-    mime: (r && r.filetype) || 'image/png',
-    title: r.title || r.name || '',
-    filename: r.url || '',
-    source: 'openverse'
-  }))
+function safeFileName(brandKey, model, ext) {
+  const b = compactAlnum(brandKey) || 'custom'
+  const m = compactAlnum(model) || 'model'
+  const e = ext === 'jpg' || ext === 'jpeg' ? 'jpg' : ext === 'webp' ? 'webp' : 'png'
+  return `${b}__${m}.${e}`
 }
 
-async function searchWikimedia(api, query) {
-  const u =
-    'https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&generator=search' +
-    '&gsrnamespace=6&gsrlimit=12&prop=imageinfo&iiprop=url|mime|size|extmetadata&iiurlwidth=480' +
-    '&gsrsearch=' +
-    encodeURIComponent(`filetype:bitmap ${query}`)
-  const data = await fetchJson(api, u)
-  const pages = (data && data.query && data.query.pages) || {}
-  const out = []
-  for (const id of Object.keys(pages)) {
-    const p = pages[id]
-    const info = p && p.imageinfo && p.imageinfo[0]
-    if (!info) continue
-    out.push({
-      url: info.thumburl || info.url || '',
-      mime: info.mime || '',
-      title: p.title || '',
-      filename: p.title || info.url || '',
-      source: 'wikimedia'
-    })
-  }
-  return out
-}
-
-async function resolveImage(api, brand, model) {
+function resolveImage(api, brand, model) {
   const key = cacheKey(brand, model)
-  const cache = api.readJson('cache.json', { images: {} }) || { images: {} }
-  if (!cache.images) cache.images = {}
-  const hit = cache.images[key]
-  if (
-    hit &&
-    hit.matchVersion === MATCH_VERSION &&
-    hit.url &&
-    Date.now() - new Date(hit.at || 0).getTime() < 7 * 24 * 3600 * 1000
-  ) {
-    return { ok: true, key, ...hit, cached: true }
-  }
-
   if (key === 'default' || !String(model || '').trim()) {
-    const row = {
+    return {
+      ok: true,
+      key: 'default',
       url: '',
       default: true,
       source: 'builtin',
+      custom: false,
       matchVersion: MATCH_VERSION,
+      offline: true,
       at: new Date().toISOString()
     }
-    cache.images.default = row
-    api.writeJson('cache.json', cache)
-    return { ok: true, key: 'default', ...row, cached: false }
   }
 
-  const queries = buildQueries(brand, model)
-  let picked = null
-  const pool = []
-  for (const q of queries) {
-    const a = await searchOpenverse(api, q)
-    pool.push(...a)
-    picked = pickBest(pool, brand, model)
-    if (picked && picked.score >= 28) break
-    const b = await searchWikimedia(api, q)
-    pool.push(...b)
-    picked = pickBest(pool, brand, model)
-    if (picked && picked.score >= 28) break
+  const ov = lookupOverride(api, brand, model)
+  if (ov && ov.file) {
+    const name = String(ov.file).split('/').pop()
+    const t = encodeURIComponent(String(ov.updatedAt || Date.now()))
+    return {
+      ok: true,
+      key,
+      url: `${FILE_BASE}${encodeURIComponent(name)}&t=${t}`,
+      default: false,
+      source: 'custom',
+      custom: true,
+      file: ov.file,
+      matchVersion: MATCH_VERSION,
+      offline: true,
+      model: String(model || '').trim(),
+      brand: String(brand || ov.brand || '').trim(),
+      brandKey: normalizeBrandKey(brand, model),
+      at: ov.updatedAt || new Date().toISOString()
+    }
   }
-  if (!picked) picked = pickBest(pool, brand, model)
 
-  const row = picked
-    ? {
-        url: picked.url,
-        source: picked.source,
-        score: picked.score,
-        title: picked.title,
-        default: false,
-        matchVersion: MATCH_VERSION,
-        model: String(model || '').trim(),
-        brand: String(brand || '').trim(),
-        at: new Date().toISOString()
-      }
-    : {
-        url: '',
-        default: true,
-        source: 'builtin',
-        matchVersion: MATCH_VERSION,
-        model: String(model || '').trim(),
-        brand: String(brand || '').trim(),
-        at: new Date().toISOString()
-      }
+  const catalog = loadCatalog(api)
+  const rel = lookupLocalFile(catalog, brand, model)
+  if (rel) {
+    return {
+      ok: true,
+      key,
+      url: STATIC_BASE + rel.replace(/^\/+/, ''),
+      default: false,
+      source: 'local',
+      custom: false,
+      file: rel,
+      matchVersion: MATCH_VERSION,
+      offline: true,
+      model: String(model || '').trim(),
+      brand: String(brand || '').trim(),
+      brandKey: normalizeBrandKey(brand, model),
+      at: new Date().toISOString()
+    }
+  }
 
-  cache.images[key] = row
-  api.writeJson('cache.json', { images: cache.images, matchVersion: MATCH_VERSION, at: new Date().toISOString() })
-  return { ok: true, key, ...row, cached: false }
+  return {
+    ok: true,
+    key,
+    url: '',
+    default: true,
+    source: 'builtin',
+    custom: false,
+    matchVersion: MATCH_VERSION,
+    offline: true,
+    model: String(model || '').trim(),
+    brand: String(brand || '').trim(),
+    brandKey: normalizeBrandKey(brand, model),
+    at: new Date().toISOString()
+  }
+}
+
+function listLibrary(api) {
+  const catalog = loadCatalog(api) || { images: [] }
+  const ov = loadOverrides(api)
+  const builtin = (catalog.images || []).map((img) => ({
+    id: img.id,
+    brand: img.brand,
+    brandLabel: brandNice(img.brand),
+    models: img.models || [],
+    model: (img.models && img.models[0]) || img.id,
+    url: STATIC_BASE + String(img.file || '').replace(/^\/+/, ''),
+    source: 'local',
+    custom: false,
+    bytes: img.bytes || 0
+  }))
+
+  const customs = []
+  const seenFiles = new Set()
+  for (const k of Object.keys(ov.items || {})) {
+    const it = ov.items[k]
+    if (!it || !it.file) continue
+    const fileKey = String(it.file)
+    if (seenFiles.has(fileKey)) continue
+    seenFiles.add(fileKey)
+    const name = fileKey.split('/').pop()
+    const t = encodeURIComponent(String(it.updatedAt || ''))
+    const thumb = readOverrideDataUrl(api, fileKey)
+    customs.push({
+      id: k,
+      brand: it.brand,
+      brandLabel: brandNice(it.brand),
+      models: [it.model],
+      model: it.model,
+      url: `${FILE_BASE}${encodeURIComponent(name)}&t=${t}`,
+      thumb: thumb || `${FILE_BASE}${encodeURIComponent(name)}&t=${t}`,
+      source: 'custom',
+      custom: true,
+      updatedAt: it.updatedAt,
+      bytes: it.bytes || 0,
+      missing: !thumb
+    })
+  }
+
+  return {
+    ok: true,
+    brands: [
+      { id: 'bambu', name: 'Bambu Lab' },
+      { id: 'creality', name: '创想三维' },
+      { id: 'elegoo', name: '爱乐库' },
+      { id: 'anycubic', name: '纵维立方' },
+      { id: 'snapmaker', name: 'Snapmaker' },
+      { id: 'flashforge', name: '闪铸' },
+      { id: 'qidi', name: '启迪' },
+      { id: 'voron', name: 'Voron' },
+      { id: 'custom', name: '其他/自定义' }
+    ],
+    builtin,
+    custom: customs,
+    items: customs.concat(builtin)
+  }
+}
+
+function saveOverride(api, body) {
+  const brandIn = body && body.brand != null ? String(body.brand).trim() : ''
+  const model = body && body.model != null ? String(body.model).trim() : ''
+  if (!model) return { ok: false, message: '请填写机型' }
+  const brandKey = normalizeBrandKey(brandIn, model)
+  const brand = brandKey
+  let raw = body && body.pngBase64 != null ? String(body.pngBase64) : ''
+  let ext = 'png'
+  let mime = 'image/png'
+  const m = raw.match(/^data:image\/([\w+.-]+);base64,/i)
+  if (m) {
+    const t = String(m[1] || '').toLowerCase()
+    if (t === 'jpeg' || t === 'jpg') {
+      ext = 'jpg'
+      mime = 'image/jpeg'
+    } else if (t === 'webp') {
+      ext = 'webp'
+      mime = 'image/webp'
+    } else if (t === 'png') {
+      ext = 'png'
+      mime = 'image/png'
+    }
+  }
+  let b64 = raw.replace(/^data:image\/[\w+.-]+;base64,/i, '').trim()
+  if (!b64) return { ok: false, message: '请上传 PNG 图片' }
+  let buf
+  try {
+    buf = Buffer.from(b64, 'base64')
+  } catch {
+    return { ok: false, message: '图片数据无效' }
+  }
+  if (buf.length < 64) return { ok: false, message: '图片过小' }
+  if (buf.length > 5 * 1024 * 1024) return { ok: false, message: '图片不能超过 5MB' }
+
+  const fileName = safeFileName(brandKey, model, ext)
+  const rel = `overrides/${fileName}`
+  if (typeof api.writeMedia !== 'function') {
+    return { ok: false, message: '当前环境不支持写入媒体文件' }
+  }
+  const wr = api.writeMedia(rel, b64, { encoding: 'base64' })
+  if (!wr || wr.ok === false) {
+    return { ok: false, message: (wr && wr.message) || '写入失败' }
+  }
+  // verify file landed
+  try {
+    const fs = require('fs')
+    const path = require('path')
+    const full = path.join(api.dataDir, 'media', 'overrides', fileName)
+    if (!fs.existsSync(full) || fs.statSync(full).size < 32) {
+      return { ok: false, message: '图片写入后未找到，请重试' }
+    }
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : '写入校验失败' }
+  }
+
+  const ov = loadOverrides(api)
+  const key = cacheKey(brandKey, model)
+  ov.items[key] = {
+    brand,
+    model,
+    file: rel,
+    mime,
+    bytes: buf.length,
+    updatedAt: new Date().toISOString()
+  }
+  // also index compact alias
+  ov.items[`${brandKey}|${compactAlnum(model)}`] = ov.items[key]
+  saveOverrides(api, ov)
+
+  const t = encodeURIComponent(ov.items[key].updatedAt)
+  return {
+    ok: true,
+    key,
+    brand,
+    model,
+    url: `${FILE_BASE}${encodeURIComponent(fileName)}&t=${t}`,
+    custom: true,
+    message: '已保存，该机型将使用此图片'
+  }
+}
+
+function deleteOverride(api, body) {
+  const brandIn = body && body.brand != null ? String(body.brand).trim() : ''
+  const model = body && body.model != null ? String(body.model).trim() : ''
+  const keyIn = body && body.key != null ? String(body.key).trim() : ''
+  const brandKey = normalizeBrandKey(brandIn, model)
+  const ov = loadOverrides(api)
+  const keys = []
+  if (keyIn) keys.push(keyIn)
+  if (model) {
+    keys.push(cacheKey(brandKey, model))
+    keys.push(`${brandKey}|${compactAlnum(model)}`)
+  }
+  let removed = 0
+  for (const k of keys) {
+    if (ov.items[k]) {
+      delete ov.items[k]
+      removed++
+    }
+  }
+  // also remove duplicates pointing same model
+  for (const k of Object.keys(ov.items)) {
+    const it = ov.items[k]
+    if (model && it && String(it.model).toLowerCase() === model.toLowerCase()) {
+      if (!brandIn || normalizeBrandKey(it.brand, it.model) === brandKey) {
+        delete ov.items[k]
+        removed++
+      }
+    }
+  }
+  saveOverrides(api, ov)
+  return { ok: true, removed, message: removed ? '已删除自定义图，恢复内置/默认' : '未找到自定义图' }
+}
+
+function serveOverrideFile(api, query) {
+  const fs = require('fs')
+  const path = require('path')
+  const name = String((query && query.name) || '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .pop()
+  if (!name || name.includes('..') || !/^[\w.-]+\.(png|jpe?g|webp)$/i.test(name)) {
+    return {
+      __pluginHttp: {
+        status: 400,
+        json: { ok: false, message: '非法文件名' }
+      }
+    }
+  }
+  const full = path.join(api.dataDir, 'media', 'overrides', name)
+  if (!fs.existsSync(full)) {
+    return {
+      __pluginHttp: {
+        status: 404,
+        json: { ok: false, message: '文件不存在' }
+      }
+    }
+  }
+  const buf = fs.readFileSync(full)
+  const ext = path.extname(name).toLowerCase()
+  const mime =
+    ext === '.png'
+      ? 'image/png'
+      : ext === '.webp'
+        ? 'image/webp'
+        : 'image/jpeg'
+  return {
+    __pluginHttp: {
+      status: 200,
+      headers: {
+        'Content-Type': mime,
+        'Content-Length': String(buf.length),
+        'Cache-Control': 'private, max-age=60'
+      },
+      body: buf
+    }
+  }
+}
+
+function readOverrideDataUrl(api, fileRel) {
+  try {
+    const fs = require('fs')
+    const path = require('path')
+    const name = String(fileRel || '')
+      .replace(/\\/g, '/')
+      .split('/')
+      .pop()
+    if (!name) return ''
+    const full = path.join(api.dataDir, 'media', 'overrides', name)
+    if (!fs.existsSync(full)) return ''
+    const buf = fs.readFileSync(full)
+    const ext = path.extname(name).toLowerCase()
+    const mime =
+      ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
+    return `data:${mime};base64,${buf.toString('base64')}`
+  } catch {
+    return ''
+  }
 }
 
 module.exports = {
   async register(api) {
+    const cat = loadCatalog(api)
+    if (cat && !api.readJson('catalog.json', null)) {
+      try {
+        api.writeJson('catalog.json', cat)
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!api.readJson('overrides.json', null)) {
+      api.writeJson('overrides.json', { version: 1, items: {} })
+    }
+
     api.registerRoute('GET', '/api/v1/card-model-portrait/models', async () => {
       const devices = api.getDevices()
       const rows = (Array.isArray(devices) ? devices : []).map((d) => ({
@@ -324,34 +524,54 @@ module.exports = {
         brand: d && d.brand,
         model: d && d.model != null ? String(d.model).trim() : ''
       }))
-      return { ok: true, rows, at: new Date().toISOString() }
+      return { ok: true, rows, offline: true, at: new Date().toISOString() }
     })
 
     api.registerRoute('GET', '/api/v1/card-model-portrait/resolve', async (req) => {
       const q = (req && req.query) || {}
-      const brand = q.brand != null ? String(q.brand) : ''
-      const model = q.model != null ? String(q.model) : ''
-      return resolveImage(api, brand, model)
+      return resolveImage(api, q.brand != null ? String(q.brand) : '', q.model != null ? String(q.model) : '')
     })
 
     api.registerRoute('POST', '/api/v1/card-model-portrait/resolve-batch', async (req) => {
       const body = (req && req.body) || {}
       const items = Array.isArray(body.items) ? body.items : []
       const out = []
-      for (const it of items.slice(0, 40)) {
+      for (const it of items.slice(0, 80)) {
         const brand = it && it.brand != null ? String(it.brand) : ''
         const model = it && it.model != null ? String(it.model) : ''
         const id = it && it.id != null ? String(it.id) : ''
-        const r = await resolveImage(api, brand, model)
-        out.push({ id, brand, model, ...r })
+        out.push({ id, brand, model, ...resolveImage(api, brand, model) })
       }
-      return { ok: true, items: out }
+      return { ok: true, offline: true, items: out }
     })
 
-    /** 清缓存后按新规则重匹配（无设置页，可供调试/重装后调用） */
+    api.registerRoute('GET', '/api/v1/card-model-portrait/library', async () => listLibrary(api))
+
+    api.registerRoute('POST', '/api/v1/card-model-portrait/override', async (req) => {
+      return saveOverride(api, (req && req.body) || {})
+    })
+
+    api.registerRoute('POST', '/api/v1/card-model-portrait/override-delete', async (req) => {
+      return deleteOverride(api, (req && req.body) || {})
+    })
+
+    api.registerRoute('GET', '/api/v1/card-model-portrait/file', async (req) => {
+      return serveOverrideFile(api, (req && req.query) || {})
+    }, { public: true })
+
+    api.registerRoute('GET', '/api/v1/card-model-portrait/catalog', async () => {
+      const catalog = loadCatalog(api) || { images: [] }
+      return {
+        ok: true,
+        offline: true,
+        matchVersion: MATCH_VERSION,
+        count: Array.isArray(catalog.images) ? catalog.images.length : 0,
+        images: catalog.images || []
+      }
+    })
+
     api.registerRoute('POST', '/api/v1/card-model-portrait/cache-clear', async () => {
-      api.writeJson('cache.json', { images: {}, matchVersion: MATCH_VERSION, at: new Date().toISOString() })
-      return { ok: true, cleared: true }
+      return { ok: true, cleared: true, offline: true }
     })
   }
 }

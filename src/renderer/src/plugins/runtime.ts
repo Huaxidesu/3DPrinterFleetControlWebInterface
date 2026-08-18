@@ -4,6 +4,7 @@
  */
 import type { PluginUiAssets, PluginUiNavItem } from '@shared/plugin'
 import { useAuthStore } from '../stores/authStore'
+import { useDeviceStore } from '../stores/deviceStore'
 
 export type SlotRenderer =
   | string
@@ -798,6 +799,16 @@ class HanyePluginRuntime {
         console.error('[HanyePlugin]', event, e)
       }
     })
+  }
+
+  /** Open / close device control drawer (same as clicking a device card). */
+  selectDevice(deviceId: string | null): void {
+    const id = deviceId == null ? null : String(deviceId).trim()
+    useDeviceStore.getState().selectDevice(id || null)
+  }
+
+  getSelectedDeviceId(): string | null {
+    return useDeviceStore.getState().selectedId
   }
 
   async exchangeLoginGrant(

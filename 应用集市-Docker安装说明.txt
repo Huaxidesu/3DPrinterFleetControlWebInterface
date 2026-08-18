@@ -1,0 +1,21 @@
+应用集市 · Docker 安装（已取消 EXE 客户端）
+
+1. 安装 Docker Desktop（Windows / Mac）或 Docker Engine（Linux）
+2. 进入目录：应用市场/docker/
+3. 编辑或生成 .env：
+   PORT=3001
+   NEXT_PUBLIC_BASE_URL=http://服务器IP:3001
+   JWT_SECRET / ADMIN_INITIAL_PASSWORD 由 gen-env 随机生成
+4. Windows 双击 install.bat
+   Linux/macOS：chmod +x install.sh && ./install.sh
+5. 浏览器打开 http://服务器IP:3001
+   管理员登录 /login ，用户名 admin，密码见 docker/.env 的 ADMIN_INITIAL_PASSWORD
+6. 云防火墙 / 宝塔放行 3001 端口
+
+详细说明：应用市场/docker/README.md
+更新/重建：docker compose up -d --build
+停止：docker compose down
+清空数据重装：reset.bat / reset.sh（输入 YES）
+
+监控台对接：
+  MARKET_BASE_URL=http://服务器IP:3001

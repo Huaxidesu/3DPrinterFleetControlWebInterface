@@ -67,7 +67,7 @@ services:
       LAN_SCAN_SUBNETS: ${LAN_SCAN_SUBNETS:-192.168.1}
       RUNNING_IN_DOCKER: "1"
       UPDATE_GIT_ROOT: /host-repo
-      MARKET_BASE_URL: ${MARKET_BASE_URL:-http://sc1.dpfrp.top:3000}
+      MARKET_BASE_URL: ${MARKET_BASE_URL:-http://124.221.92.32:3001}
       MARKET_DESKTOP_SECRET: ${MARKET_DESKTOP_SECRET:-app-market-desktop-please-change-me}
       MARKET_DEVICE_ID: ${MARKET_DEVICE_ID:-}
       LICENSE_REQUIRED: ${LICENSE_REQUIRED:-0}

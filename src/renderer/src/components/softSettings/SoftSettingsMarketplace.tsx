@@ -91,9 +91,12 @@ type LicensePayload = {
   licenseEnforce?: boolean
 }
 
-const REPO_FALLBACK = 'http://sc1.dpfrp.top:3000'
+const REPO_FALLBACK = 'http://124.221.92.32:3001'
 /** 源码内置备用线路（与服务端 catalog 一致；勿写入对外文档） */
-const REPO_FALLBACKS = ['http://sc1.dpfrp.top:3000', 'http://124.221.92.32:3001'] as const
+const REPO_FALLBACKS = [
+  'http://124.221.92.32:3001',
+  'http://127.0.0.1:3001'
+] as const
 
 function isPaidRow(row: Pick<MarketRow, 'pricingType' | 'price'>): boolean {
   if (String(row.pricingType || '').toUpperCase() === 'PAID') return true
@@ -130,6 +133,9 @@ function MarketCover({ row }: { row: MarketRow }) {
       <img
         src={src}
         alt={row.name}
+        loading="lazy"
+        decoding="async"
+        fetchPriority="low"
         onError={() => {
           if (idx + 1 < urls.length) setIdx(idx + 1)
         }}
@@ -355,14 +361,15 @@ export function SoftSettingsMarketplace() {
   }, [])
 
   useEffect(() => {
-    void refresh(false)
-    void loadLicense()
-  }, [refresh, loadLicense])
+    void (async () => {
+      const [r] = await Promise.all([refresh(false), loadLicense()])
+      if (r?.loggedIn) await refreshHeartbeat()
+    })()
+  }, [refresh, loadLicense, refreshHeartbeat])
 
   useEffect(() => {
-    if (loggedIn) void refreshHeartbeat()
-    else setOwnedApps([])
-  }, [loggedIn, refreshHeartbeat])
+    if (!loggedIn) setOwnedApps([])
+  }, [loggedIn])
 
   const onLogin = async (values: { account: string; password: string }) => {
     setAuthLoading(true)
@@ -375,16 +382,14 @@ export function SoftSettingsMarketplace() {
       }
       if (!r.ok) throw new Error(r.message || '登录失败')
       const ownedN = Array.isArray(r.ownedApps) ? r.ownedApps.length : 0
+      if (Array.isArray(r.ownedApps)) setOwnedApps(r.ownedApps)
       message.success(
         r.allowUse === false
           ? '登录成功，但授权心跳未通过，请检查本机设备 ID'
           : `登录成功，已同步授权（可使用 ${ownedN} 个应用）`
       )
       loginForm.resetFields()
-      await refresh(true)
-      await loadLicense()
-      await refreshHeartbeat()
-      await onRecheckLicenses({ quiet: true })
+      await Promise.all([refresh(false), loadLicense()])
     } catch (e) {
       message.error(e instanceof Error ? e.message : '登录失败')
     } finally {
@@ -406,14 +411,12 @@ export function SoftSettingsMarketplace() {
         ownedApps?: Array<{ appIdentifier: string; name?: string; appType?: string }>
       }
       if (!r.ok) throw new Error(r.message || '注册失败')
+      if (Array.isArray(r.ownedApps)) setOwnedApps(r.ownedApps)
       message.success(
         `注册并登录成功${Array.isArray(r.ownedApps) ? `（已购 ${r.ownedApps.length}）` : ''}`
       )
       registerForm.resetFields()
-      await refresh(true)
-      await loadLicense()
-      await refreshHeartbeat()
-      await onRecheckLicenses({ quiet: true })
+      await Promise.all([refresh(false), loadLicense()])
     } catch (e) {
       message.error(e instanceof Error ? e.message : '注册失败')
     } finally {
@@ -428,8 +431,7 @@ export function SoftSettingsMarketplace() {
       message.success('已退出集市账号（已装集市应用将按未登录关闭）')
       setOwnedApps([])
       setCheckResult(null)
-      await refresh(false)
-      await loadLicense()
+      await Promise.all([refresh(false), loadLicense()])
     } catch (e) {
       message.error(e instanceof Error ? e.message : '退出失败')
     } finally {
@@ -499,6 +501,7 @@ export function SoftSettingsMarketplace() {
           total?: number
           skippedBuiltin?: string[]
           skippedNotInMarket?: string[]
+          ownedApps?: Array<{ appIdentifier: string; name?: string; appType?: string }>
           items?: Array<{
             appIdentifier: string
             name?: string
@@ -512,7 +515,7 @@ export function SoftSettingsMarketplace() {
       if (!r.ok) throw new Error(r.message || '批量校验失败')
       const d = r.data || {}
       setCheckResult(d)
-      await refreshHeartbeat()
+      if (Array.isArray(d.ownedApps)) setOwnedApps(d.ownedApps)
       if (opts?.quiet) return
       const skipLocal = d.skippedNotInMarket?.length || 0
       const skipBuiltin = d.skippedBuiltin?.length || 0
@@ -572,9 +575,7 @@ export function SoftSettingsMarketplace() {
       message.success(r.message || (row.updateAvailable ? '已更新' : '安装成功'))
       setInstallTarget(null)
       setPaySession(null)
-      await refresh(true)
-      await loadLicense()
-      await refreshHeartbeat()
+      await Promise.all([refresh(false), loadLicense(), refreshHeartbeat()])
     } catch (e) {
       const msg = e instanceof Error ? e.message : '安装失败'
       // 未先创建付款会话时：拉起扫码，而不是只弹一句「请扫码」
@@ -1122,6 +1123,8 @@ export function SoftSettingsMarketplace() {
           display: flex;
           flex-direction: column;
           overflow: hidden;
+          content-visibility: auto;
+          contain-intrinsic-size: auto 280px;
         }
         .market-app-card .ant-card-body {
           flex: 1;

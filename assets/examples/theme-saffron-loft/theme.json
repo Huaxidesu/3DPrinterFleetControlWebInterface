@@ -1,0 +1,102 @@
+{
+  "identifier": "saffron_loft",
+  "name": "藏红工坊",
+  "version": "1.0.3",
+  "description": "整站换壳：底栏胶囊导航 + 票券式设备卡 + 藏红/薄荷配色与入场动效。与默认侧栏卡片墙完全不同。",
+  "copyright": "hanye",
+  "author": "hanye",
+  "builtin": false,
+  "siteMode": "full",
+  "layout": "custom",
+  "deviceView": "grid",
+  "loginLayout": "custom",
+  "layoutJs": [
+    "layout.js"
+  ],
+  "defaultStyle": "loft_night",
+  "cssFiles": [
+    "style.css"
+  ],
+  "loginCssFiles": [
+    "login.css"
+  ],
+  "styles": [
+    {
+      "id": "loft_night",
+      "name": "夜工坊",
+      "desc": "深焙咖啡底 · 藏红强调 · 薄荷辅色",
+      "swatch": [
+        "#1a1410",
+        "#f0a202",
+        "#7dcfb6"
+      ],
+      "antd": {
+        "colorPrimary": "#f0a202",
+        "colorBgBase": "#1a1410",
+        "algorithm": "dark",
+        "borderRadius": 14
+      },
+      "css": {
+        "--app-color-scheme": "dark",
+        "--app-text": "#f3ebe2",
+        "--app-header-bg": "rgba(22, 17, 13, 0.88)",
+        "--app-header-border": "rgba(240, 162, 2, 0.28)",
+        "--app-header-title": "#f0a202",
+        "--app-shell-bg": "#1a1410",
+        "--app-sidebar-bg": "rgba(14, 11, 9, 0.96)",
+        "--app-footer-bg": "rgba(14, 11, 9, 0.92)",
+        "--app-card-bg": "rgba(36, 28, 22, 0.92)",
+        "--app-control-color": "rgba(243, 235, 226, 0.72)",
+        "--sl-ink": "#1a1410",
+        "--sl-ink-deep": "#100c09",
+        "--sl-paper": "#2a221c",
+        "--sl-saffron": "#f0a202",
+        "--sl-mint": "#7dcfb6",
+        "--sl-cream": "#f3ebe2",
+        "--sl-muted": "rgba(243, 235, 226, 0.55)",
+        "--sl-line": "rgba(240, 162, 2, 0.22)",
+        "--sl-glow": "0 12px 40px rgba(240, 162, 2, 0.12)"
+      }
+    },
+    {
+      "id": "loft_ember",
+      "name": "余烬",
+      "desc": "更深底 · 珊瑚橙强调 · 雾青辅色",
+      "swatch": [
+        "#120e0c",
+        "#ff7a45",
+        "#8ecae6"
+      ],
+      "antd": {
+        "colorPrimary": "#ff7a45",
+        "colorBgBase": "#120e0c",
+        "algorithm": "dark",
+        "borderRadius": 14
+      },
+      "css": {
+        "--app-color-scheme": "dark",
+        "--app-text": "#f6eee8",
+        "--app-header-bg": "rgba(14, 10, 8, 0.9)",
+        "--app-header-border": "rgba(255, 122, 69, 0.3)",
+        "--app-header-title": "#ff7a45",
+        "--app-shell-bg": "#120e0c",
+        "--app-sidebar-bg": "rgba(10, 8, 6, 0.98)",
+        "--app-footer-bg": "rgba(10, 8, 6, 0.94)",
+        "--app-card-bg": "rgba(28, 22, 18, 0.94)",
+        "--app-control-color": "rgba(246, 238, 232, 0.72)",
+        "--sl-ink": "#120e0c",
+        "--sl-ink-deep": "#0a0806",
+        "--sl-paper": "#241c18",
+        "--sl-saffron": "#ff7a45",
+        "--sl-mint": "#8ecae6",
+        "--sl-cream": "#f6eee8",
+        "--sl-muted": "rgba(246, 238, 232, 0.55)",
+        "--sl-line": "rgba(255, 122, 69, 0.24)",
+        "--sl-glow": "0 12px 40px rgba(255, 122, 69, 0.14)"
+      }
+    }
+  ],
+  "compatibleSoftwares": [
+    "hanye-printer-monitor"
+  ]
+}

@@ -1090,6 +1090,16 @@ if (!result.ok) {
 - 可选：`HanyePlugin.exchangeLoginGrant(grantToken, { applySession: false })`
 - 它内部调用宿主公开接口 `POST /api/v1/auth/plugin-login/exchange`
 
+### 7.5.2 打开设备控制面板
+
+```js
+HanyePlugin.selectDevice(deviceId) // 打开
+HanyePlugin.selectDevice(null)     // 关闭
+HanyePlugin.getSelectedDeviceId()  // 当前选中 id 或 null
+```
+
+与点击设备卡片相同：受查看权限与当前 FDM/光固化分区约束。
+
 ### 7.6 文档头尾 HTML
 
 服务端 `ui_assets` 可返回 `htmlHeader` / `htmlFooter`，由 `PluginLoader` 注入到 `document.body`。

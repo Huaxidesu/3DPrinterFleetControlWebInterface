@@ -16,8 +16,9 @@ try {
 
 /** 源码内置备用线路（勿写入对外文档） */
 const BUILTIN_MARKET_BASES = [
-  'http://sc1.dpfrp.top:3000',
-  'http://124.221.92.32:3001'
+  'http://124.221.92.32:3001',
+  'http://sc1.dpfrp.top:3001',
+  'http://sc1.dpfrp.top:3000'
 ] as const
 
 const RESOLVE_TTL_MS = 60_000
@@ -37,14 +38,16 @@ export function listMarketBaseCandidates(): string[] {
     if (!b || !/^https?:\/\//i.test(b)) return
     if (!out.includes(b)) out.push(b)
   }
-  push(String(process.env.MARKET_BASE_URL || ''))
+  const envBase = normalizeBase(String(process.env.MARKET_BASE_URL || ''))
+  push(envBase)
   for (const part of String(process.env.MARKET_BASE_URLS || '').split(/[,;\s]+/)) {
     push(part)
   }
+  // 已显式配置市场地址时，只走这条（及 MARKET_BASE_URLS），不再扫公网备用/本机端口
+  if (envBase) return out
   for (const b of BUILTIN_MARKET_BASES) push(b)
-  // 本机开发兜底
-  push('http://127.0.0.1:3000')
   push('http://127.0.0.1:3001')
+  push('http://127.0.0.1:3000')
   return out
 }
 
@@ -53,7 +56,7 @@ export function getMarketBaseUrl(): string {
   if (resolvedBase && Date.now() - resolvedBase.at < RESOLVE_TTL_MS * 5) {
     return resolvedBase.url
   }
-  return listMarketBaseCandidates()[0] || 'http://sc1.dpfrp.top:3000'
+  return listMarketBaseCandidates()[0] || 'http://127.0.0.1:3001'
 }
 
 function rememberMarketBase(url: string): string {
@@ -67,7 +70,7 @@ export function setMarketBaseUrl(url: string): string {
   return rememberMarketBase(url)
 }
 
-async function probeMarketBase(base: string, timeoutMs = 6_000): Promise<boolean> {
+async function probeMarketBase(base: string, timeoutMs = 2_500): Promise<boolean> {
   try {
     const ctrl = new AbortController()
     const t = setTimeout(() => ctrl.abort(), timeoutMs)
@@ -92,12 +95,25 @@ export async function resolveMarketBaseUrl(force = false): Promise<string> {
     return resolvedBase.url
   }
   const candidates = listMarketBaseCandidates()
-  for (const base of candidates) {
-    if (await probeMarketBase(base)) {
-      return rememberMarketBase(base)
+  const fallback = candidates[0] || 'http://127.0.0.1:3001'
+  const preferred = normalizeBase(String(process.env.MARKET_BASE_URL || ''))
+
+  if (preferred && (await probeMarketBase(preferred, 3_000))) {
+    return rememberMarketBase(preferred)
+  }
+  if (!force && resolvedBase?.url && resolvedBase.url !== preferred) {
+    if (await probeMarketBase(resolvedBase.url)) {
+      return rememberMarketBase(resolvedBase.url)
     }
   }
-  return rememberMarketBase(candidates[0] || 'http://sc1.dpfrp.top:3000')
+
+  const rest = candidates.filter((b) => b !== preferred && b !== resolvedBase?.url)
+  const probes = await Promise.all(
+    rest.map(async (base) => ({ base, ok: await probeMarketBase(base) }))
+  )
+  const hit = probes.find((p) => p.ok)
+  if (hit) return rememberMarketBase(hit.base)
+  return rememberMarketBase(preferred || fallback)
 }
 
 /** 兼容软件标识；空字符串表示不传 software 字段 */
@@ -194,6 +210,16 @@ export function packageDownloadUrls(relPath: string): string[] {
   if (!p || p.includes('..')) return []
   const url = absUrl(p)
   return url ? [url] : []
+}
+
+/** 封面列表用缩略图参数，避免 1～2MB 原图把界面拖卡 */
+export function packageIconUrls(relPath: string): string[] {
+  return packageDownloadUrls(relPath).map((url) => {
+    if (!/\.(png|jpe?g|webp|gif)(\?|$)/i.test(url) && !/\/uploads\/covers\//i.test(url)) {
+      return url
+    }
+    return `${url}${url.includes('?') ? '&' : '?'}w=480&q=72`
+  })
 }
 
 async function fetchText(
@@ -455,20 +481,21 @@ export async function loadMarketCatalog(force = false): Promise<{
   if (force) cache = null
 
   const notes: string[] = []
-  const bust = `t=${Date.now()}`
-  // 按候选线路逐条尝试（通哪条用哪条）
-  const bases = force ? listMarketBaseCandidates() : [await resolveMarketBaseUrl(false), ...listMarketBaseCandidates()]
+  const resolved = await resolveMarketBaseUrl(false)
+  const bases = force
+    ? [resolved, ...listMarketBaseCandidates()]
+    : [resolved]
   const tried = new Set<string>()
   const urls: string[] = []
   for (const base of bases) {
     const b = normalizeBase(base)
     if (!b || tried.has(b)) continue
     tried.add(b)
-    urls.push(`${b}/api/apps?${bust}`, `${b}/api/apps`)
+    urls.push(force ? `${b}/api/apps?t=${Date.now()}` : `${b}/api/apps`)
   }
 
   for (const url of urls) {
-    const r = await fetchText(url)
+    const r = await fetchText(url, 8_000, 1)
     if (!r.ok) {
       notes.push(r.message)
       continue
@@ -558,7 +585,7 @@ export function enrichPackages(
       installedVersion: localVer || null,
       updateAvailable,
       downloadUrls: packageDownloadUrls(p.path),
-      iconUrls: iconPath ? packageDownloadUrls(iconPath) : [],
+      iconUrls: iconPath ? packageIconUrls(iconPath) : [],
       licensed: Boolean(lic),
       licenseKeyHint: lic ? `${lic.slice(0, 6)}…` : undefined
     }

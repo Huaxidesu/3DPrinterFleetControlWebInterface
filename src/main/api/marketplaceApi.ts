@@ -122,6 +122,26 @@ export async function handleMarketplaceApi(opts: {
     })
   }
 
+  const heartbeatThenRecheck = async () => {
+    const deviceId = resolveDeviceId(dataRoot)
+    let hb: Awaited<ReturnType<typeof marketHeartbeat>> | null = null
+    if (deviceId) {
+      try {
+        hb = await marketHeartbeat({
+          marketBase: getMarketBaseUrl(),
+          deviceId,
+          timeoutMs: 8_000
+        })
+      } catch (e) {
+        console.warn('[marketplace] 登录心跳失败', e)
+      }
+    }
+    void runLicenseRecheck().catch((e) => {
+      console.warn('[marketplace] 授权复查失败', e)
+    })
+    return hb
+  }
+
   if (method === 'GET' && path === '/api/v1/marketplace/auth/me') {
     const me = await fetchMarketMe(dataRoot)
     sendJson(res, me.ok ? 200 : 502, {
@@ -145,21 +165,14 @@ export async function handleMarketplaceApi(opts: {
         account: String(body.account || body.username || body.email || ''),
         password: String(body.password || '')
       })
-      let license: Awaited<ReturnType<typeof runLicenseRecheck>> = null
-      if (result.ok) {
-        try {
-          license = await runLicenseRecheck()
-        } catch (e) {
-          console.warn('[marketplace] 登录后授权复查失败', e)
-        }
-      }
+      const hb = result.ok ? await heartbeatThenRecheck() : null
       sendJson(res, result.ok ? 200 : 400, {
         ok: result.ok,
         user: result.user || null,
         loggedIn: Boolean(result.ok && result.user),
         deviceId: resolveDeviceId(dataRoot) || null,
-        ownedApps: license?.ownedApps || [],
-        allowUse: license?.allowUse,
+        ownedApps: hb?.ownedApps || [],
+        allowUse: hb?.allowUse,
         message: result.message
       })
     } catch (e) {
@@ -178,21 +191,14 @@ export async function handleMarketplaceApi(opts: {
         password: String(body.password || ''),
         displayName: typeof body.displayName === 'string' ? body.displayName : undefined
       })
-      let license: Awaited<ReturnType<typeof runLicenseRecheck>> = null
-      if (result.ok) {
-        try {
-          license = await runLicenseRecheck()
-        } catch (e) {
-          console.warn('[marketplace] 注册后授权复查失败', e)
-        }
-      }
+      const hb = result.ok ? await heartbeatThenRecheck() : null
       sendJson(res, result.ok ? 200 : 400, {
         ok: result.ok,
         user: result.user || null,
         loggedIn: Boolean(result.ok && result.user),
         deviceId: resolveDeviceId(dataRoot) || null,
-        ownedApps: license?.ownedApps || [],
-        allowUse: license?.allowUse,
+        ownedApps: hb?.ownedApps || [],
+        allowUse: hb?.allowUse,
         message: result.message
       })
     } catch (e) {
@@ -203,11 +209,9 @@ export async function handleMarketplaceApi(opts: {
 
   if (method === 'POST' && path === '/api/v1/marketplace/auth/logout') {
     await marketLogout(dataRoot)
-    try {
-      await runLicenseRecheck()
-    } catch (e) {
+    void runLicenseRecheck().catch((e) => {
       console.warn('[marketplace] 退出后授权复查失败', e)
-    }
+    })
     sendJson(res, 200, {
       ok: true,
       loggedIn: false,

@@ -78,6 +78,7 @@ async function marketAuthFetch(
     sessionToken?: string
     timeoutMs?: number
     _retried?: boolean
+    _rerouted?: boolean
   } = {}
 ): Promise<{
   status: number
@@ -88,7 +89,7 @@ async function marketAuthFetch(
   const base = getMarketBaseUrl().replace(/\/+$/, '')
   const url = `${base}${path.startsWith('/') ? path : `/${path}`}`
   const ctrl = new AbortController()
-  const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 25_000)
+  const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 12_000)
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'Content-Type': 'application/json',
@@ -126,10 +127,12 @@ async function marketAuthFetch(
     }
   } catch (e) {
     clearTimeout(t)
-    // 当前线路失败时强制换线再试一次
     if (!opts._retried) {
-      await resolveMarketBaseUrl(true)
       return marketAuthFetch(path, { ...opts, _retried: true, timeoutMs: opts.timeoutMs })
+    }
+    if (!opts._rerouted) {
+      await resolveMarketBaseUrl(true)
+      return marketAuthFetch(path, { ...opts, _retried: true, _rerouted: true, timeoutMs: opts.timeoutMs })
     }
     const msg = e instanceof Error ? e.message : String(e)
     return {
