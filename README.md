@@ -4,7 +4,7 @@
 
 | 项目 | 说明 |
 |------|------|
-| 版本 | **4.0.1** |
+| 版本 | **4.0.2** |
 | 许可 | MIT |
 | 默认端口 | **17890** |
 | 默认管理员 | **admin** / **admin123**（登录后请立刻改密） |
@@ -115,6 +115,7 @@ docker compose -f docker-compose.fnos.yml up -d --build
 
 仍搜不到时可在网页里 **手动添加** 打印机 IP。
 
+
 ### 2.4 群晖 NAS（Synology）
 
 ```bash
@@ -148,6 +149,8 @@ docker compose up -d --build
 
 本机有 npm：`npm run docker:up` / `docker:down` / `docker:logs` / `docker:import`。
 
+软件设置「关于」里的更新：会覆盖宿主机源码，并（在已挂载 `docker.sock` 时）自动重建容器。正在跑的 4.0.1 及更早容器需要先手动 `docker compose up -d --build` 升到 4.0.2，之后即可在网页里一键覆盖。
+
 ### 2.7 排错
 
 | 现象 | 建议 |
@@ -156,6 +159,7 @@ docker compose up -d --build
 | 健康检查失败 | `cd docker && docker compose logs -f app` |
 | 端口占用 | 改 `docker/.env` 的 `PORT=`，重建 |
 | NAS 权限 | 给仓库与 `data/` 读写权限 |
+| 关于里更新后版本不变 | 旧容器未挂载 docker.sock，需按新 compose 重建一次 |
 | 扫不到打印机 | `LAN_SCAN_SUBNETS` + `docker-compose.fnos.yml` |
 
 ---

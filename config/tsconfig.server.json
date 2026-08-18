@@ -35,6 +35,7 @@
     "../src/main/license/**/*",
     "../src/main/storage/**/*",
     "../src/main/nav/**/*",
+    "../src/main/update/**/*",
     "../src/main/pollInterval.ts",
     "../src/shared/**/*"
   ]

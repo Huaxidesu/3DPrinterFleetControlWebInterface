@@ -68,6 +68,7 @@ services:
       LAN_SCAN_SUBNETS: ${LAN_SCAN_SUBNETS:-}
       RUNNING_IN_DOCKER: "1"
       UPDATE_GIT_ROOT: /host-repo
+      HANYE_COMPOSE_FILE: docker-compose.yml
       MARKET_BASE_URL: ${MARKET_BASE_URL:-http://124.221.92.32:3001}
       MARKET_DESKTOP_SECRET: ${MARKET_DESKTOP_SECRET:-app-market-desktop-please-change-me}
       MARKET_DEVICE_ID: ${MARKET_DEVICE_ID:-}
@@ -77,6 +78,8 @@ services:
       - ../data:/app/data
       # Soft Settings「更新」写入宿主机源码（ZIP 部署也可，无需 .git）
       - ..:/host-repo
+      # 一键更新后自动重建容器（助手容器走同一套 compose，不会把自己杀掉）
+      - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test:
         [

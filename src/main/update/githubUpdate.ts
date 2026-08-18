@@ -1,16 +1,21 @@
 /**
  * GitHub release check + apply update (git pull 或下载源码包)。
- * Docker：更新挂载的宿主机源码目录（UPDATE_GIT_ROOT=/host-repo），再提示重建镜像。
+ * Docker：把源码写到挂载的宿主机目录（UPDATE_GIT_ROOT=/host-repo），
+ * 若已挂载 docker.sock 则自动重建并切换容器（正在跑的镜像不会被 ZIP 直接覆盖）。
  */
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import http from 'http'
 import {
   existsSync,
   readFileSync,
   mkdirSync,
   rmSync,
   writeFileSync,
-  cpSync,
+  copyFileSync,
+  chmodSync,
+  renameSync,
+  unlinkSync,
   mkdtempSync,
   readdirSync,
   statSync
@@ -27,6 +32,8 @@ export const GITHUB_REPO_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO
 export const GITHUB_RELEASES_URL = `${GITHUB_REPO_URL}/releases`
 
 const CHECK_CACHE_MS = 24 * 60 * 60 * 1000
+const DOCKER_SOCK = '/var/run/docker.sock'
+const UPDATER_NAME = 'hanye-self-updater'
 
 export type DeployMode = 'docker' | 'source'
 
@@ -44,6 +51,7 @@ export type UpdateCheckResult = {
   cached?: boolean
   deployMode: DeployMode
   canApplyUpdate: boolean
+  canAutoRebuild: boolean
   updateRoot: string | null
 }
 
@@ -57,6 +65,7 @@ export type UpdateApplyResult = {
   log?: string
   deployMode: DeployMode
   needsRebuild?: boolean
+  rebuilding?: boolean
 }
 
 let lastCheck: { at: number; result: UpdateCheckResult } | null = null
@@ -101,6 +110,31 @@ export function isDockerDeploy(): boolean {
   if (existsSync('/.dockerenv')) return true
   if (String(process.env.UPDATE_GIT_ROOT || '').trim()) return true
   return false
+}
+
+function dockerSockReady(): boolean {
+  return existsSync(DOCKER_SOCK)
+}
+
+function autoRebuildEnabled(): boolean {
+  const v = String(process.env.HANYE_SKIP_AUTO_REBUILD || '').trim()
+  return v !== '1' && v.toLowerCase() !== 'true'
+}
+
+function isWritableDir(dir: string): boolean {
+  const probe = join(dir, '.hanye-write-test')
+  try {
+    writeFileSync(probe, 'ok')
+    rmSync(probe, { force: true })
+    return true
+  } catch {
+    try {
+      rmSync(probe, { force: true })
+    } catch {
+      /* ignore */
+    }
+    return false
+  }
 }
 
 function findGitRoot(start = process.cwd()): string | null {
@@ -222,11 +256,10 @@ async function latestTagViaAtom(): Promise<
   }
 }
 
-function dockerHint(needsRebuild: boolean): string {
-  if (!needsRebuild) return ''
+function dockerManualHint(): string {
   return (
-    ' Docker 部署：源码已写到宿主机目录后，请到飞牛 Docker 项目点「重新构建并启动」' +
-    '（或在宿主机 docker/ 目录执行：docker compose -f docker-compose.fnos.yml up -d --build）。'
+    ' 请到 Docker 项目点「重新构建并启动」' +
+    '（或在 docker/ 目录执行：docker compose up -d --build）。'
   )
 }
 
@@ -241,7 +274,9 @@ export async function checkGithubUpdate(opts?: {
 
   const deployMode: DeployMode = isDockerDeploy() ? 'docker' : 'source'
   const updateRoot = resolveUpdateRoot()
-  const canApplyUpdate = Boolean(updateRoot)
+  const writable = Boolean(updateRoot && isWritableDir(updateRoot))
+  const canApplyUpdate = writable
+  const canAutoRebuild = deployMode === 'docker' && dockerSockReady() && autoRebuildEnabled()
 
   const currentVersion = normalizeVersion(opts?.currentVersion || readLocalPackageVersion())
   const checkedAt = new Date().toISOString()
@@ -317,6 +352,7 @@ export async function checkGithubUpdate(opts?: {
         '检查不到更新：服务器无法访问 GitHub（api.github.com / git）',
       deployMode,
       canApplyUpdate,
+      canAutoRebuild,
       updateRoot
     }
     lastCheck = { at: now, result }
@@ -328,11 +364,17 @@ export async function checkGithubUpdate(opts?: {
   let message = updateAvailable
     ? `发现新版本 v${latestVersion}（当前 v${currentVersion}）`
     : `已是最新版本 v${currentVersion}`
-  if (updateAvailable && deployMode === 'docker' && !canApplyUpdate) {
+  if (updateAvailable && deployMode === 'docker' && !updateRoot) {
     message +=
       '。当前容器未挂载宿主机源码（UPDATE_GIT_ROOT=/host-repo），无法在设置里一键更新；请更新 compose 后重建，或手动替换源码再构建。'
+  } else if (updateAvailable && deployMode === 'docker' && !writable) {
+    message +=
+      '。已挂载源码目录，但容器无法写入（只读挂载或权限不足），所以不能覆盖更新。请检查 /host-repo 挂载权限后重建。'
+  } else if (updateAvailable && deployMode === 'docker' && canAutoRebuild) {
+    message += '。点「更新」会下载源码并自动重建容器，新版本会替换当前镜像。'
   } else if (updateAvailable && deployMode === 'docker') {
-    message += '。点「更新」会下载源码到宿主机目录，然后请重新构建 Docker 镜像。'
+    message +=
+      '。点「更新」会下载源码到宿主机；当前未挂载 docker.sock，需手动重新构建镜像后新版本才会进容器。'
   }
 
   const result: UpdateCheckResult = {
@@ -348,6 +390,7 @@ export async function checkGithubUpdate(opts?: {
     message,
     deployMode,
     canApplyUpdate,
+    canAutoRebuild,
     updateRoot
   }
   lastCheck = { at: now, result }
@@ -378,7 +421,296 @@ function shouldPreserveRel(rel: string): boolean {
   if (n === 'docker/.env' || n === '.env') return true
   if (n === 'node_modules' || n.startsWith('node_modules/')) return true
   if (n === '.git' || n.startsWith('.git/')) return true
+  if (n.endsWith('.hanye-upd-tmp')) return true
   return false
+}
+
+function copyFileOverwrite(src: string, dest: string): void {
+  mkdirSync(dirname(dest), { recursive: true })
+  if (existsSync(dest)) {
+    try {
+      const st = statSync(dest)
+      if (st.isDirectory()) {
+        rmSync(dest, { recursive: true, force: true })
+      } else {
+        try {
+          chmodSync(dest, 0o644)
+        } catch {
+          /* ignore */
+        }
+        try {
+          unlinkSync(dest)
+        } catch {
+          /* rename 覆盖 */
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  const tmp = `${dest}.hanye-upd-tmp`
+  try {
+    copyFileSync(src, tmp)
+    try {
+      renameSync(tmp, dest)
+    } catch {
+      try {
+        unlinkSync(dest)
+      } catch {
+        /* ignore */
+      }
+      renameSync(tmp, dest)
+    }
+  } finally {
+    try {
+      if (existsSync(tmp)) unlinkSync(tmp)
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function overlayCopyTree(srcRoot: string, destRoot: string): { ok: boolean; log: string } {
+  let copied = 0
+  const walk = (srcDir: string, relBase: string) => {
+    for (const name of readdirSync(srcDir)) {
+      const rel = relBase ? `${relBase}/${name}` : name
+      if (shouldPreserveRel(rel)) continue
+      const src = join(srcDir, name)
+      const dest = join(destRoot, rel)
+      let st
+      try {
+        st = statSync(src)
+      } catch {
+        continue
+      }
+      if (st.isDirectory()) {
+        mkdirSync(dest, { recursive: true })
+        walk(src, rel)
+      } else if (st.isFile()) {
+        copyFileOverwrite(src, dest)
+        copied += 1
+      }
+    }
+  }
+  try {
+    mkdirSync(destRoot, { recursive: true })
+    walk(srcRoot, '')
+    if (!existsSync(join(destRoot, 'package.json'))) {
+      return { ok: false, log: `覆盖后未找到 package.json（${destRoot}）` }
+    }
+    return { ok: true, log: `overwrote ${copied} files → ${destRoot}` }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (/EACCES|EPERM|EROFS/i.test(msg)) {
+      return {
+        ok: false,
+        log: `无法覆盖写入宿主机源码目录（权限/只读挂载）：${msg}`
+      }
+    }
+    return { ok: false, log: msg }
+  }
+}
+
+function shQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`
+}
+
+function dockerApi(
+  method: string,
+  apiPath: string,
+  body?: unknown
+): Promise<{ status: number; json: unknown; text: string }> {
+  return new Promise((resolve, reject) => {
+    const payload = body === undefined ? undefined : JSON.stringify(body)
+    const req = http.request(
+      {
+        socketPath: DOCKER_SOCK,
+        path: apiPath.startsWith('/v1.') ? apiPath : `/v1.41${apiPath}`,
+        method,
+        headers: payload
+          ? {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(payload)
+            }
+          : undefined
+      },
+      (res) => {
+        const chunks: Buffer[] = []
+        res.on('data', (c: Buffer) => chunks.push(c))
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8')
+          let json: unknown = null
+          if (text) {
+            try {
+              json = JSON.parse(text)
+            } catch {
+              json = null
+            }
+          }
+          resolve({ status: res.statusCode || 0, json, text })
+        })
+      }
+    )
+    req.on('error', reject)
+    if (payload) req.write(payload)
+    req.end()
+  })
+}
+
+function hostRepoFromMountinfo(): string | null {
+  try {
+    const text = readFileSync('/proc/self/mountinfo', 'utf8')
+    for (const line of text.split('\n')) {
+      const left = line.split(' - ')[0]
+      if (!left) continue
+      const fields = left.split(' ')
+      if (fields[4] === '/host-repo' && fields[3]) {
+        return fields[3]
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+type ComposeCtx = {
+  hostRepo: string
+  workDir: string
+  composeFile: string
+  project: string
+  image: string
+}
+
+type ContainerInspect = {
+  Config?: { Image?: string; Labels?: Record<string, string> }
+  Mounts?: Array<{ Source?: string; Destination?: string }>
+}
+
+async function resolveComposeContext(): Promise<ComposeCtx | null> {
+  const names = ['hanye-app', process.env.HOSTNAME || ''].filter(Boolean)
+  let inspect: ContainerInspect | null = null
+  for (const name of names) {
+    try {
+      const r = await dockerApi('GET', `/containers/${encodeURIComponent(name)}/json`)
+      if (r.status === 200 && r.json && typeof r.json === 'object') {
+        inspect = r.json as ContainerInspect
+        break
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  const labels = inspect?.Config?.Labels || {}
+  const hostRepo =
+    inspect?.Mounts?.find((m) => m.Destination === '/host-repo')?.Source ||
+    hostRepoFromMountinfo()
+  if (!hostRepo) return null
+
+  const workDir = labels['com.docker.compose.project.working_dir'] || join(hostRepo, 'docker')
+  const fromLabel = (labels['com.docker.compose.project.config_files'] || '')
+    .split(',')[0]
+    ?.trim()
+  const fromEnv = String(process.env.HANYE_COMPOSE_FILE || '').trim()
+  const picked = fromLabel || fromEnv || 'docker-compose.yml'
+  const composeFile =
+    picked.startsWith('/') || /^[A-Za-z]:[\\/]/.test(picked) ? picked : join(workDir, picked)
+  const project = labels['com.docker.compose.project'] || 'docker'
+  const image = inspect?.Config?.Image || 'hanye-printer-monitor:latest'
+  return { hostRepo, workDir, composeFile, project, image }
+}
+
+async function scheduleComposeRebuild(): Promise<{ ok: boolean; log: string }> {
+  if (!dockerSockReady()) {
+    return { ok: false, log: '未挂载 /var/run/docker.sock，无法自动重建容器' }
+  }
+  if (!autoRebuildEnabled()) {
+    return { ok: false, log: '已设置 HANYE_SKIP_AUTO_REBUILD，跳过自动重建' }
+  }
+  const ctx = await resolveComposeContext()
+  if (!ctx) {
+    return { ok: false, log: '无法解析宿主机源码路径 / Compose 项目，无法自动重建' }
+  }
+
+  try {
+    await dockerApi('DELETE', `/containers/${UPDATER_NAME}?force=1`)
+  } catch {
+    /* ignore */
+  }
+
+  const script = [
+    'sleep 8',
+    `docker compose -p ${shQuote(ctx.project)} -f ${shQuote(ctx.composeFile)} --project-directory ${shQuote(ctx.workDir)} up -d --build`
+  ].join(' && ')
+
+  const create = await dockerApi('POST', `/containers/create?name=${UPDATER_NAME}`, {
+    Image: ctx.image,
+    Entrypoint: ['/bin/sh', '-c'],
+    Cmd: [script],
+    WorkingDir: ctx.workDir,
+    Env: [
+      'DOCKER_HOST=unix:///var/run/docker.sock',
+      'DOCKER_CLI_PLUGIN_EXTRA_DIRS=/usr/local/libexec/docker/cli-plugins'
+    ],
+    HostConfig: {
+      Binds: [`${DOCKER_SOCK}:${DOCKER_SOCK}`, `${ctx.hostRepo}:${ctx.hostRepo}`],
+      AutoRemove: true,
+      RestartPolicy: { Name: 'no' }
+    }
+  })
+  if (create.status !== 201 || !create.json || typeof create.json !== 'object') {
+    return {
+      ok: false,
+      log: `创建重建助手失败 HTTP ${create.status}: ${(create.text || '').slice(0, 400)}`
+    }
+  }
+  const id = (create.json as { Id?: string }).Id
+  if (!id) return { ok: false, log: '创建重建助手失败：无容器 ID' }
+
+  const start = await dockerApi('POST', `/containers/${id}/start`)
+  if (start.status !== 204 && start.status !== 200) {
+    return {
+      ok: false,
+      log: `启动重建助手失败 HTTP ${start.status}: ${(start.text || '').slice(0, 400)}`
+    }
+  }
+  return {
+    ok: true,
+    log: `scheduled ${UPDATER_NAME} compose -p ${ctx.project} -f ${ctx.composeFile} in ${ctx.workDir}`
+  }
+}
+
+async function maybeScheduleDockerRebuild(result: UpdateApplyResult): Promise<UpdateApplyResult> {
+  if (!result.ok || !result.updated || !isDockerDeploy()) return result
+  try {
+    const scheduled = await scheduleComposeRebuild()
+    if (scheduled.ok) {
+      return {
+        ...result,
+        needsRebuild: false,
+        rebuilding: true,
+        message: `源码已更新到 v${result.currentVersion}，正在自动重建并切换容器（约 1～3 分钟）。页面可能会短暂断开，请稍后刷新。`,
+        log: `${result.log || ''}\n${scheduled.log}`.trim()
+      }
+    }
+    return {
+      ...result,
+      needsRebuild: true,
+      rebuilding: false,
+      message: `源码已更新到 v${result.currentVersion}，但未能自动覆盖当前容器：${scheduled.log}。${dockerManualHint()}`,
+      log: `${result.log || ''}\n${scheduled.log}`.trim()
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return {
+      ...result,
+      needsRebuild: true,
+      rebuilding: false,
+      message: `源码已更新到 v${result.currentVersion}，自动重建出错：${msg}。${dockerManualHint()}`,
+      log: `${result.log || ''}\n${msg}`.trim()
+    }
+  }
 }
 
 async function downloadAndExtractTag(tag: string, destRoot: string): Promise<{ ok: boolean; log: string }> {
@@ -437,17 +769,11 @@ async function downloadAndExtractTag(tag: string, destRoot: string): Promise<{ o
       return { ok: false, log: `${notes.join('\n')}\n解压后未找到 package.json` }
     }
 
-    mkdirSync(destRoot, { recursive: true })
-    cpSync(srcRoot, destRoot, {
-      recursive: true,
-      force: true,
-      filter: (src) => {
-        const rel = src.slice(srcRoot.length).replace(/^[/\\]+/, '').replace(/\\/g, '/')
-        if (!rel) return true
-        return !shouldPreserveRel(rel)
-      }
-    })
-    return { ok: true, log: `${notes.join('\n')}\nextracted → ${destRoot}` }
+    const overlay = overlayCopyTree(srcRoot, destRoot)
+    if (!overlay.ok) {
+      return { ok: false, log: `${notes.join('\n')}\n${overlay.log}` }
+    }
+    return { ok: true, log: `${notes.join('\n')}\n${overlay.log}` }
   } catch (e) {
     return {
       ok: false,
@@ -462,35 +788,40 @@ async function downloadAndExtractTag(tag: string, destRoot: string): Promise<{ o
   }
 }
 
+function clearGitIndexLock(root: string): void {
+  try {
+    rmSync(join(root, '.git', 'index.lock'), { force: true })
+  } catch {
+    /* ignore */
+  }
+}
+
 async function applyViaGit(root: string, check: UpdateCheckResult): Promise<UpdateApplyResult> {
   const deployMode: DeployMode = isDockerDeploy() ? 'docker' : 'source'
-  const fetch = await runGit(root, ['fetch', '--tags', 'origin'])
-  if (!fetch.ok) {
+  const fail = (
+    ok: boolean,
+    reachable: boolean,
+    message: string,
+    log?: string
+  ): UpdateApplyResult => ({
+    ok,
+    reachable,
+    updated: false,
+    currentVersion: check.currentVersion,
+    latestVersion: check.latestVersion,
+    message,
+    log,
+    deployMode
+  })
+
+  const zipFallback = async (reason: string): Promise<UpdateApplyResult> => {
     const tag = check.latestTag || check.latestVersion
     if (!tag) {
-      return {
-        ok: false,
-        reachable: false,
-        updated: false,
-        currentVersion: check.currentVersion,
-        latestVersion: check.latestVersion,
-        message: '拉取失败：请确认能否访问 GitHub（git fetch / 下载源码包）',
-        log: fetch.out,
-        deployMode
-      }
+      return fail(false, true, reason, reason)
     }
     const arch = await downloadAndExtractTag(tag, root)
     if (!arch.ok) {
-      return {
-        ok: false,
-        reachable: false,
-        updated: false,
-        currentVersion: check.currentVersion,
-        latestVersion: check.latestVersion,
-        message: '拉取失败：git 与源码包下载均不可用',
-        log: `${fetch.out}\n${arch.log}`.trim(),
-        deployMode
-      }
+      return fail(false, false, `${reason}；源码包覆盖也失败`, `${reason}\n${arch.log}`)
     }
     const ver = readLocalPackageVersion(root)
     return {
@@ -499,11 +830,17 @@ async function applyViaGit(root: string, check: UpdateCheckResult): Promise<Upda
       updated: true,
       currentVersion: ver,
       latestVersion: check.latestVersion,
-      message: `源码已更新到 v${ver}（源码包）。${dockerHint(deployMode === 'docker')}`.trim(),
-      log: `${fetch.out}\n${arch.log}`.trim(),
+      message: `源码已更新到 v${ver}（源码包覆盖，已保留 data/ 与 docker/.env）。`,
+      log: `${reason}\n${arch.log}`.trim(),
       deployMode,
       needsRebuild: deployMode === 'docker'
     }
+  }
+
+  clearGitIndexLock(root)
+  const fetch = await runGit(root, ['fetch', '--tags', 'origin'])
+  if (!fetch.ok) {
+    return zipFallback(`git fetch 失败，改用源码包覆盖：${fetch.out}`)
   }
 
   if (check.latestTag) {
@@ -518,13 +855,14 @@ async function applyViaGit(root: string, check: UpdateCheckResult): Promise<Upda
         currentVersion: ver,
         latestVersion: check.latestVersion,
         message: `源码已更新到 ${tag}。${
-          deployMode === 'docker' ? dockerHint(true) : '请执行 npm run build 并重启服务后生效。'
+          deployMode === 'docker' ? '' : '请执行 npm run build 并重启服务后生效。'
         }`.trim(),
         log: `${fetch.out}\n${co.out}`.trim(),
         deployMode,
         needsRebuild: deployMode === 'docker'
       }
     }
+    return zipFallback(`git checkout ${tag} 无法覆盖本地文件，改用源码包：${co.out}`)
   }
 
   const ref = await runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD'])
@@ -534,16 +872,7 @@ async function applyViaGit(root: string, check: UpdateCheckResult): Promise<Upda
     pull = await runGit(root, ['pull', '--ff-only', 'origin', 'main'])
   }
   if (!pull.ok) {
-    return {
-      ok: false,
-      reachable: true,
-      updated: false,
-      currentVersion: check.currentVersion,
-      latestVersion: check.latestVersion,
-      message: '源码更新失败（可能有本地未提交改动或非快进）。请到服务器手动处理。',
-      log: pull.out,
-      deployMode
-    }
+    return zipFallback(`git pull 非快进/无法覆盖，改用源码包：${pull.out}`)
   }
   const ver = readLocalPackageVersion(root)
   return {
@@ -553,7 +882,7 @@ async function applyViaGit(root: string, check: UpdateCheckResult): Promise<Upda
     currentVersion: ver,
     latestVersion: check.latestVersion,
     message: `源码已更新到 v${ver}。${
-      deployMode === 'docker' ? dockerHint(true) : '请执行 npm run build 并重启服务后生效。'
+      deployMode === 'docker' ? '' : '请执行 npm run build 并重启服务后生效。'
     }`.trim(),
     log: pull.out,
     deployMode,
@@ -562,6 +891,13 @@ async function applyViaGit(root: string, check: UpdateCheckResult): Promise<Upda
 }
 
 export async function applyGithubSourceUpdate(opts?: {
+  currentVersion?: string
+}): Promise<UpdateApplyResult> {
+  const result = await applyGithubSourceUpdateCore(opts)
+  return maybeScheduleDockerRebuild(result)
+}
+
+async function applyGithubSourceUpdateCore(opts?: {
   currentVersion?: string
 }): Promise<UpdateApplyResult> {
   const deployMode: DeployMode = isDockerDeploy() ? 'docker' : 'source'
@@ -595,6 +931,19 @@ export async function applyGithubSourceUpdate(opts?: {
     }
   }
 
+  if (deployMode === 'docker' && !isWritableDir(root)) {
+    return {
+      ok: false,
+      reachable: true,
+      updated: false,
+      currentVersion,
+      latestVersion: check.latestVersion,
+      message:
+        '容器无法写入宿主机源码目录（只读挂载或权限不足），所以不能覆盖更新。请检查 /host-repo 是否可写后重建。',
+      deployMode
+    }
+  }
+
   if (existsSync(join(root, '.git'))) {
     return applyViaGit(root, check)
   }
@@ -620,7 +969,9 @@ export async function applyGithubSourceUpdate(opts?: {
       updated: false,
       currentVersion,
       latestVersion: check.latestVersion,
-      message: '下载/解压源码包失败：请确认服务器能访问 github.com / codeload.github.com',
+      message: /无法覆盖|EACCES|EPERM|EROFS/.test(arch.log)
+        ? arch.log
+        : '下载/解压源码包失败：请确认服务器能访问 github.com / codeload.github.com',
       log: arch.log,
       deployMode
     }
@@ -633,9 +984,7 @@ export async function applyGithubSourceUpdate(opts?: {
     updated: true,
     currentVersion: ver,
     latestVersion: check.latestVersion,
-    message: `源码已更新到 v${ver}（ZIP 解压，已保留 data/ 与 docker/.env）。${dockerHint(
-      deployMode === 'docker'
-    )}`.trim(),
+    message: `源码已更新到 v${ver}（ZIP 解压，已保留 data/ 与 docker/.env）。`,
     log: arch.log,
     deployMode,
     needsRebuild: deployMode === 'docker'

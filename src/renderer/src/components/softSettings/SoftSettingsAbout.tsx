@@ -27,6 +27,7 @@ export type UpdateCheckPayload = {
   cached?: boolean
   deployMode?: 'docker' | 'source'
   canApplyUpdate?: boolean
+  canAutoRebuild?: boolean
 }
 
 async function fetchLocalAppVersion(): Promise<string> {
@@ -80,11 +81,54 @@ export async function fetchUpdateCheck(force = false): Promise<UpdateCheckPayloa
     checkedAt: j.checkedAt,
     cached: j.cached,
     deployMode: j.deployMode === 'docker' ? 'docker' : j.deployMode === 'source' ? 'source' : undefined,
-    canApplyUpdate: j.canApplyUpdate
+    canApplyUpdate: j.canApplyUpdate,
+    canAutoRebuild: Boolean(j.canAutoRebuild)
   }
 }
 
-/** 登录后每 24h 自动检查一次；有更新则提示，连不上 GitHub 则提示网络 */
+function sleep(ms: number) {
+  return new Promise((r) => window.setTimeout(r, ms))
+}
+
+function versionAtLeast(current: string, target: string): boolean {
+  const pa = String(current || '')
+    .replace(/^v/i, '')
+    .split(/[.+-]/)
+    .map((x) => parseInt(x, 10))
+  const pb = String(target || '')
+    .replace(/^v/i, '')
+    .split(/[.+-]/)
+    .map((x) => parseInt(x, 10))
+  const n = Math.max(pa.length, pb.length)
+  for (let i = 0; i < n; i++) {
+    const x = Number.isFinite(pa[i]!) ? pa[i]! : 0
+    const y = Number.isFinite(pb[i]!) ? pb[i]! : 0
+    if (x > y) return true
+    if (x < y) return false
+  }
+  return true
+}
+
+async function waitForRebuiltVersion(target: string | null): Promise<string | null> {
+  const { serverUrl } = useAuthStore.getState()
+  const health = `${serverUrl.replace(/\/$/, '')}/api/health`
+  const deadline = Date.now() + 10 * 60 * 1000
+  while (Date.now() < deadline) {
+    await sleep(8000)
+    try {
+      const res = await fetch(health, { cache: 'no-store' })
+      if (!res.ok) continue
+      const j = (await res.json()) as { version?: string }
+      const v = String(j.version || '').trim().replace(/^v/i, '')
+      if (!v) continue
+      if (!target || versionAtLeast(v, target)) return v
+    } catch {
+      /* 重建时短暂断开 */
+    }
+  }
+  return null
+}
+
 export function usePeriodicUpdateCheck(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return
@@ -229,7 +273,9 @@ export function SoftSettingsAbout() {
           </p>
           {docker ? (
             <p style={{ marginBottom: 0, color: 'rgba(0,0,0,.45)' }}>
-              Docker 只会更新宿主机上的源码目录；成功后请到飞牛 Docker 项目点「重新构建并启动」，新版本才会进容器。
+              {status?.canAutoRebuild
+                ? '会下载新源码并自动重建容器。页面可能短暂断开，完成后刷新即可看到新版本。'
+                : '会先把新源码写到宿主机。若未挂载 docker.sock，还需在 Docker 里「重新构建并启动」后新版本才会进容器。'}
             </p>
           ) : (
             <p style={{ marginBottom: 0, color: 'rgba(0,0,0,.45)' }}>
@@ -238,10 +284,11 @@ export function SoftSettingsAbout() {
           )}
         </div>
       ),
-      okText: docker ? '下载源码并更新' : '服务器可访问，开始更新',
+      okText: docker ? '开始更新' : '服务器可访问，开始更新',
       cancelText: '取消',
       onOk: async () => {
         setApplying(true)
+        let waitInBackground = false
         try {
           const probe = await fetchUpdateCheck(true)
           if (!probe.reachable) {
@@ -266,7 +313,10 @@ export function SoftSettingsAbout() {
             reachable?: boolean
             message?: string
             needsRebuild?: boolean
+            rebuilding?: boolean
             deployMode?: string
+            latestVersion?: string | null
+            currentVersion?: string
           }
           if (!j.reachable) {
             message.error(j.message || '无法连接 GitHub，请检查网络后再试')
@@ -277,19 +327,46 @@ export function SoftSettingsAbout() {
             return
           }
           localStorage.removeItem(LS_HINT)
+          if (j.rebuilding) {
+            waitInBackground = true
+            const target = j.latestVersion || j.currentVersion || null
+            void (async () => {
+              try {
+                message.loading({
+                  content: j.message || '正在重建容器，请稍候…',
+                  key: 'hanye-rebuild',
+                  duration: 0
+                })
+                const next = await waitForRebuiltVersion(target)
+                if (next) {
+                  message.success({ content: `已更新到 v${next}`, key: 'hanye-rebuild' })
+                  setLocalVersion(next)
+                } else {
+                  message.warning({
+                    content: '容器仍在重建或启动中，请过一两分钟后手动刷新页面。',
+                    key: 'hanye-rebuild'
+                  })
+                }
+                await doCheck(true)
+              } finally {
+                setApplying(false)
+              }
+            })()
+            return
+          }
           message.success(j.message || '源码已更新')
           if (j.needsRebuild || j.deployMode === 'docker') {
             Modal.info({
               title: '还差一步：重建 Docker 镜像',
               content:
-                '源码已更新到宿主机。请到飞牛 → Docker → 本项目 →「重新构建并启动」。完成后刷新网页查看新版本号。'
+                '源码已写到宿主机，但当前容器还是旧镜像。请到 Docker → 本项目 →「重新构建并启动」（需使用已挂载 docker.sock 的新 compose）。完成后刷新网页查看新版本号。'
             })
           }
           await doCheck(true)
         } catch (e) {
           message.error(e instanceof Error ? e.message : '更新失败')
         } finally {
-          setApplying(false)
+          if (!waitInBackground) setApplying(false)
         }
       }
     })
@@ -374,7 +451,9 @@ export function SoftSettingsAbout() {
             ) : (
               <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
                 {status?.deployMode === 'docker'
-                  ? 'Docker 模式：更新会把新源码写到宿主机目录（需挂载 /host-repo），然后请重新构建镜像。自动每 24 小时检查一次。'
+                  ? status.canAutoRebuild
+                    ? 'Docker 模式：更新会覆盖宿主机源码并自动重建容器。自动每 24 小时检查一次。'
+                    : 'Docker 模式：更新会覆盖宿主机源码。当前未挂载 docker.sock，还需手动重新构建镜像。自动每 24 小时检查一次。'
                   : '自动每 24 小时检查一次。更新会拉取仓库源码（git 或 ZIP），完成后请重新构建并重启。'}
               </Typography.Text>
             )}
