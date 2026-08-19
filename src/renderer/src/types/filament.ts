@@ -20,8 +20,8 @@ export type MaterialType = {
 export type SpoolAmsBinding = {
   deviceId: string
   /**
-   * 0 = 外挂/单色本机料架（无 AMS 或多色机关闭 AMS）
-   * ≥1 = AMS 槽位（与 live amsSlots[].id 对应）
+   * 0 = 外挂 / 单色料架 / 换头机 T0
+   * ≥1 = AMS 槽位或换头机 T1、T2…（与详情控制台料位编号一致）
    */
   slotId: number
 }

@@ -133,7 +133,12 @@ html.ffc-compact .device-page-bar .ant-pagination {
 }
 
 .ffc-tile.ffc-k-error {
-  border-color: rgba(248, 113, 113, 0.55);
+  border-color: rgba(248, 113, 113, 0.7);
+  box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.12);
+}
+
+.ffc-tile.ffc-k-error .ffc-bar > i {
+  background: linear-gradient(90deg, #f87171, #fb7185);
 }
 
 .ffc-tile.ffc-k-offline {
@@ -234,6 +239,16 @@ html.ffc-compact .device-page-bar .ant-pagination {
   background: rgba(6, 95, 70, 0.45);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+.ffc-stamp.ffc-stamp-error {
+  background: rgba(50, 12, 16, 0.28);
+}
+
+.ffc-stamp.ffc-stamp-error .ffc-stamp-text {
+  border-color: rgba(252, 165, 165, 0.9);
+  color: #fff1f2;
+  background: rgba(153, 27, 27, 0.62);
 }
 
 @media (max-width: 720px) {

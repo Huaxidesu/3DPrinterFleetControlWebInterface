@@ -1,8 +1,8 @@
 {
   "identifier": "fdm_fleet_cards",
   "name": "FDM 机群紧凑卡片",
-  "version": "1.0.2",
-  "description": "保留原 FDM 卡片；一键切换超紧凑机群视图（温度/进度/剩余时间），打印完成盖章，完成时语音播报「名字打印完成」。",
+  "version": "1.0.3",
+  "description": "保留原 FDM 卡片；一键切换超紧凑机群视图（温度/进度/剩余时间），完成/报错盖章，完成或报错时语音播报。",
   "copyright": "hanye",
   "available": true,
   "hooks": [
@@ -11,7 +11,7 @@
   "vars": [
     {
       "key": "voice_announce",
-      "title": "打印完成语音播报",
+      "title": "完成/报错语音播报",
       "type": "boolean",
       "value": "1"
     },

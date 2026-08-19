@@ -860,7 +860,7 @@ export function FilamentManager() {
                                   )
                               }}
                             >
-                              {name} · {b.slotId === 0 ? '外挂' : `AMS ${b.slotId}`}
+                              {name} · 料位 {b.slotId}
                             </Tag>
                           )
                         })}
@@ -890,13 +890,13 @@ export function FilamentManager() {
                       placeholder="选择料位"
                       options={(() => {
                         const slots = statuses[amsDeviceWatch || '']?.amsSlots
-                        const base = [{ value: 0, label: '外挂 / 单色料架' }]
+                        const base = [{ value: 0, label: '料位 0 · 外挂 / 单色' }]
                         if (slots?.length) {
                           return [
                             ...base,
                             ...slots.map((s) => ({
                               value: s.id,
-                              label: `AMS ${s.id} · ${s.material} ${s.remain}%`
+                              label: `料位 ${s.id} · ${s.material} ${s.remain}%`
                             }))
                           ]
                         }

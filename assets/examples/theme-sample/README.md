@@ -4,7 +4,7 @@
 
 ## 安装
 
-1. 下载 ZIP：`hanye-theme-sample-topnav.zip`
+1. 下载 ZIP：`sample_topnav-1.1.0.zip`（应用集市开发文档页 `/docs` 可下）
 2. 打开监控台 → **软件设置 → 主题**
 3. 拖拽上传 ZIP → **启用**「示例·顶栏工单台」
 4. 可在样式里切换「昼间 / 夜间」

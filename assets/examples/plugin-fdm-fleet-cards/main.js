@@ -23,8 +23,23 @@ function isFinished(st) {
   )
 }
 
+function isError(st) {
+  if (!st) return false
+  if (String(st.health || '') === 'error') return true
+  const s = normState(st.state)
+  if (!s) return false
+  return (
+    s === 'failed' ||
+    s === 'error' ||
+    s === 'fatal' ||
+    s.includes('failed') ||
+    s.includes('error') ||
+    s.startsWith('klippy_')
+  )
+}
+
 function isPrinting(st) {
-  if (!st || isFinished(st)) return false
+  if (!st || isFinished(st) || isError(st)) return false
   const s = normState(st.state)
   if (!s) return Number(st.progress) > 0 && Number(st.progress) < 100
   if (s === 'idle' || s === 'standby' || s === 'ready' || s === 'cancelled' || s === 'canceled') {
@@ -47,6 +62,7 @@ module.exports = {
         const st = statuses[id] || {}
         const progress = Math.min(100, Math.max(0, Math.round(Number(st.progress) || 0)))
         const finished = isFinished(st)
+        const error = isError(st)
         rows.push({
           id,
           name: String((d && d.name) || id),
@@ -62,8 +78,10 @@ module.exports = {
             st.extruder && st.extruder.actual != null ? Number(st.extruder.actual) : null,
           bedActual: st.bed && st.bed.actual != null ? Number(st.bed.actual) : null,
           finished,
+          error,
           printing: isPrinting(st),
-          filename: st.filename != null ? String(st.filename) : ''
+          filename: st.filename != null ? String(st.filename) : '',
+          message: st.message != null ? String(st.message) : ''
         })
       }
       return {

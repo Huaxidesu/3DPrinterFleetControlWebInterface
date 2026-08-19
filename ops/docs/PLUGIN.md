@@ -20,9 +20,9 @@
 
 | 包 | 下载 | 说明 |
 |----|------|------|
-| 全站改造示例 | [hanye-plugin-sample-hello.zip](/api/v1/docs/downloads/hanye-plugin-sample-hello.zip) | 登录 / 导航 / 权限 / 槽位 / 自定义路由 |
-| Kernel v2 示例 | [hanye-plugin-kernel-v2.zip](/api/v1/docs/downloads/hanye-plugin-kernel-v2.zip) | `activate(ctx)` / hooks / templates / cron |
-| 能力原语示例 | （源码打包） | 文件/开打/锁机/快照/print.finished 历史 |
+| 全站改造示例 | [demo_hello-2.0.0.zip](/downloads/examples/demo_hello-2.0.0.zip) | 登录 / 导航 / 权限 / 槽位 / 自定义路由 |
+| Kernel v2 示例 | [demo_kernel_v2-1.1.0.zip](/downloads/examples/demo_kernel_v2-1.1.0.zip) | `activate(ctx)` / hooks / templates / cron |
+| 能力原语示例 | [capability_kit-1.0.0.zip](/downloads/examples/capability_kit-1.0.0.zip) | 文件/开打/锁机/快照/print.finished 历史 |
 
 源码：`assets/examples/plugin-sample/`、`assets/examples/plugin-kernel-v2/`、`assets/examples/plugin-capability-kit/`、`assets/examples/plugin-chamber-temp/`（仓温，可自行打包）。
 
@@ -1934,8 +1934,9 @@ npm run build && npm start
 
 | 源码 | 下载 ZIP | 要点 |
 |------|----------|------|
-| `assets/examples/plugin-sample/` | hanye-plugin-sample-hello.zip | 登录、导航、permissions_catalog、主题补丁、路由 |
-| `assets/examples/plugin-kernel-v2/` | hanye-plugin-kernel-v2.zip | activate、hooks、templates、cron、i18n |
+| `assets/examples/plugin-sample/` | [demo_hello-2.0.0.zip](/downloads/examples/demo_hello-2.0.0.zip) | 登录、导航、permissions_catalog、主题补丁、路由 |
+| `assets/examples/plugin-kernel-v2/` | [demo_kernel_v2-1.1.0.zip](/downloads/examples/demo_kernel_v2-1.1.0.zip) | activate、hooks、templates、cron、i18n |
+| `assets/examples/plugin-capability-kit/` | [capability_kit-1.0.0.zip](/downloads/examples/capability_kit-1.0.0.zip) | 设备原语、传文件开打、锁机、快照 |
 | `assets/examples/plugin-chamber-temp/` | （自行打包） | 卡片仓温、temps API、page 模块 |
 
 ---

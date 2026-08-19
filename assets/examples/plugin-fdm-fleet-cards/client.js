@@ -4,8 +4,8 @@
  * - 默认保留原设备卡片与全部功能
  * - 工具栏切换图标 → 超紧凑机群视图（一屏数百台）
  * - 显示：名称、挤出/热床温度、进度条、剩余时间
- * - 打印完成：透明「完成」盖章；重新开始打印后自动消除
- * - 完成瞬间语音播报：「{名字}打印完成」
+ * - 打印完成：透明「完成」盖章；报错：「报错」盖章
+ * - 完成瞬间语音播报：「{名字}打印完成」；报错瞬间：「{名字}报错」
  */
 ;(function () {
   var P = window.HanyePlugin
@@ -26,9 +26,14 @@
   var sectionTimer = null
   var rowsCache = []
   var prevFinished = Object.create(null)
+  var prevError = Object.create(null)
   var primed = false
   var brandFilter = 'all'
   var statusKinds = []
+  var speakQueue = []
+  var speakTimer = null
+  var lastUtterance = null
+  var speechUnlocked = false
 
   function authHeaders() {
     var token = localStorage.getItem(TOKEN_KEY) || ''
@@ -64,10 +69,26 @@
     return Math.round(Number(n)) + '°'
   }
 
+  function isErrorRow(row) {
+    if (row && row.error) return true
+    var h = String((row && row.health) || '')
+    if (h === 'error') return true
+    var s = String((row && row.state) || '').toLowerCase()
+    if (!s) return false
+    return (
+      s === 'failed' ||
+      s === 'error' ||
+      s === 'fatal' ||
+      s.indexOf('failed') >= 0 ||
+      s.indexOf('error') >= 0 ||
+      s.indexOf('klippy_') === 0
+    )
+  }
+
   function kindOf(row) {
     var h = String((row && row.health) || 'offline')
     if (h === 'offline' || h === 'connecting') return 'offline'
-    if (h === 'error') return 'error'
+    if (isErrorRow(row)) return 'error'
     if (row && row.finished) return 'finished'
     if (row && row.printing) return 'printing'
     var s = String((row && row.state) || '').toLowerCase()
@@ -121,30 +142,99 @@
     })
   }
 
-  function speakDone(name) {
-    if (!voiceOn || !serverVoice) return
+  function pickZhVoice() {
+    try {
+      var voices = window.speechSynthesis.getVoices() || []
+      for (var i = 0; i < voices.length; i++) {
+        var v = voices[i]
+        var key = String((v && v.lang) || '') + ' ' + String((v && v.name) || '')
+        if (/zh-CN|zh_CN|Chinese|中文|普通话|Ting-Ting|Mei-Jia/i.test(key)) return v
+      }
+      for (var j = 0; j < voices.length; j++) {
+        if (/^zh/i.test(String(voices[j].lang || ''))) return voices[j]
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    return null
+  }
+
+  function unlockSpeech() {
+    speechUnlocked = true
     if (!window.speechSynthesis || typeof window.SpeechSynthesisUtterance !== 'function') return
     try {
-      window.speechSynthesis.cancel()
-      var u = new window.SpeechSynthesisUtterance(String(name || '打印机') + '打印完成')
+      window.speechSynthesis.resume()
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function speakNow(text) {
+    if (!window.speechSynthesis || typeof window.SpeechSynthesisUtterance !== 'function') return
+    try {
+      window.speechSynthesis.resume()
+      var u = new window.SpeechSynthesisUtterance(String(text || ''))
       u.lang = 'zh-CN'
       u.rate = 1
+      u.volume = 1
+      var voice = pickZhVoice()
+      if (voice) u.voice = voice
+      lastUtterance = u
       window.speechSynthesis.speak(u)
     } catch (_) {
       /* ignore */
     }
   }
 
-  function detectFinishTransitions(rows) {
+  function drainSpeak() {
+    if (speakTimer) return
+    speakTimer = setTimeout(function () {
+      speakTimer = null
+      if (!voiceOn || !serverVoice) {
+        speakQueue = []
+        return
+      }
+      if (!speakQueue.length) return
+      if (window.speechSynthesis && window.speechSynthesis.speaking) {
+        drainSpeak()
+        return
+      }
+      speakNow(speakQueue.shift())
+      if (speakQueue.length) drainSpeak()
+    }, 120)
+  }
+
+  function speak(text) {
+    if (!voiceOn || !serverVoice) return
+    if (!window.speechSynthesis || typeof window.SpeechSynthesisUtterance !== 'function') return
+    speakQueue.push(String(text || ''))
+    drainSpeak()
+  }
+
+  function speakDone(name) {
+    speak(String(name || '打印机') + '打印完成')
+  }
+
+  function speakError(name) {
+    speak(String(name || '打印机') + '报错')
+  }
+
+  function detectStatusTransitions(rows) {
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i]
       var id = r.id
-      var now = !!r.finished
-      var prev = prevFinished[id]
-      if (primed && prev === false && now === true) {
+      var nowDone = !!r.finished && !isErrorRow(r)
+      var nowErr = isErrorRow(r)
+      var prevDone = prevFinished[id]
+      var prevErr = prevError[id]
+      if (primed && prevDone === false && nowDone === true) {
         speakDone(r.name)
       }
-      prevFinished[id] = now
+      if (primed && prevErr === false && nowErr === true) {
+        speakError(r.name)
+      }
+      prevFinished[id] = nowDone
+      prevError[id] = nowErr
     }
     primed = true
   }
@@ -153,19 +243,27 @@
     var pct = Math.min(100, Math.max(0, Number(r.progress) || 0))
     var finished = !!r.finished
     var k = kindOf(r)
+    var err = k === 'error'
+    var stamp =
+      err || finished
+        ? '<span class="ffc-stamp' +
+          (err ? ' ffc-stamp-error' : '') +
+          '" aria-hidden="true"><span class="ffc-stamp-text">' +
+          (err ? '报错' : '完成') +
+          '</span></span>'
+        : ''
+    var tip = r.name + (r.filename ? ' · ' + r.filename : '') + (r.message ? ' · ' + r.message : '')
     return (
       '<button type="button" class="ffc-tile ffc-k-' +
       k +
-      (finished ? ' is-done' : '') +
+      (finished && !err ? ' is-done' : '') +
+      (err ? ' is-error' : '') +
       '" data-id="' +
       escapeHtml(r.id) +
       '" title="' +
-      escapeHtml(r.name) +
-      (r.filename ? ' · ' + r.filename : '') +
+      escapeHtml(tip) +
       '">' +
-      (finished
-        ? '<span class="ffc-stamp" aria-hidden="true"><span class="ffc-stamp-text">完成</span></span>'
-        : '') +
+      stamp +
       '<div class="ffc-name">' +
       escapeHtml(r.name) +
       '</div>' +
@@ -185,7 +283,7 @@
       pct +
       '%</span>' +
       '<span class="ffc-eta">' +
-      (finished ? '完成' : formatRemain(r.remainingSeconds)) +
+      (err ? '报错' : finished ? '完成' : formatRemain(r.remainingSeconds)) +
       '</span>' +
       '</div>' +
       '</button>'
@@ -232,9 +330,11 @@
   }
 
   function setVoice(on) {
+    unlockSpeech()
     voiceOn = !!on
     localStorage.setItem(LS_VOICE, voiceOn ? '1' : '0')
     renderToolbar()
+    if (voiceOn && serverVoice) speakNow('语音播报已打开')
   }
 
   function renderToolbar() {
@@ -260,7 +360,7 @@
       '</span></button>' +
       '<button type="button" class="ffc-toggle' +
       (voiceOn && serverVoice ? ' is-on' : '') +
-      '" data-act="voice" title="打印完成语音播报">' +
+      '" data-act="voice" title="完成/报错语音播报">' +
       '<span class="ffc-ico" aria-hidden="true">' +
       (voiceOn && serverVoice
         ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 9v6h4l5 4V5L8 9H4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M16 8.5a5 5 0 010 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
@@ -355,7 +455,7 @@
         if (typeof p.voiceAnnounce === 'boolean') serverVoice = p.voiceAnnounce
         if (typeof p.defaultCompact === 'boolean') defaultCompact = p.defaultCompact
         rowsCache = Array.isArray(p.rows) ? p.rows : []
-        detectFinishTransitions(rowsCache)
+        detectStatusTransitions(rowsCache)
         renderFleet()
         renderToolbar()
       })
@@ -382,7 +482,10 @@
       var t = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null
       if (!t) return
       var act = t.getAttribute('data-act')
-      if (act === 'toggle') setCompact(!compact)
+      if (act === 'toggle') {
+        unlockSpeech()
+        setCompact(!compact)
+      }
       if (act === 'voice') setVoice(!voiceOn)
     })
   }
@@ -462,4 +565,15 @@
     .catch(function () {})
 
   P.emit('fdm_fleet_cards:ready', { ok: true })
+
+  try {
+    if (window.speechSynthesis && window.speechSynthesis.addEventListener) {
+      window.speechSynthesis.addEventListener('voiceschanged', function () {
+        pickZhVoice()
+      })
+      window.speechSynthesis.getVoices()
+    }
+  } catch (_) {
+    /* ignore */
+  }
 })()

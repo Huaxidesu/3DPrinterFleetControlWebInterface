@@ -87,6 +87,17 @@
     return Math.max(0, rollsOf(s) - spoolBindings(s).length)
   }
 
+  function capacityOf(s) {
+    return Math.max(1, Math.round((Number(s && s.totalGrams) || 0) * rollsOf(s)))
+  }
+
+  function remainPctOf(s) {
+    if (!s) return null
+    var g = Number(s.remainGrams)
+    if (!Number.isFinite(g)) return null
+    return Math.round(Math.max(0, Math.min(100, (g / capacityOf(s)) * 100)))
+  }
+
   function materialOf(s) {
     return (s && (s.material || s.materialName || s.tray_type)) || '料卷'
   }
@@ -453,51 +464,185 @@
     )
   }
 
+  function liveSlotHasColor(live) {
+    if (!live) return false
+    var mat = String(live.material || '').trim()
+    if (!mat || mat === '空' || mat === 'empty') return false
+    var col = normalizeSlotColor(live.color)
+    return !!(live.color && col && col !== '#888888')
+  }
+
+  function filamentMatrix(remain) {
+    var start1 = 0.28
+    var end1 = 0.4
+    var start2 = 1.65
+    var end2 = 3.5
+    var t = remain == null ? 1 : Math.max(0, Math.min(100, Number(remain))) / 100
+    return (
+      'matrix(' +
+      (start1 + (end1 - start1) * t) +
+      ',0,0,' +
+      (start2 + (end2 - start2) * t) +
+      ',197,250)'
+    )
+  }
+
   function spoolCardHtml(opts) {
     var sid = opts.slotId
-    var label = opts.label
-    var mat = opts.mat
+    var uid = 's' + String(sid).replace(/[^0-9a-zA-Z_-]/g, '')
     var col = opts.col
     var fg = opts.fg
-    var k = opts.k
     var remain = opts.remain
-    var remainUnit = opts.remainUnit || '%'
     var on = opts.on
-    var solo = opts.solo
     var empty = opts.empty
+    var title = opts.title || ''
+    var wheel = '#AD8762'
+    var pctText = empty ? '空' : remain == null ? '100%' : remain + '%'
+    var filament =
+      empty
+        ? ''
+        : '<path d="M 0 -63 C 35 -63 63 -35 63 0 C 63 35 35 63 0 63 L -424 63 L -424 -63 z" vector-effect="non-scaling-stroke" fill="' +
+          escapeHtml(col) +
+          '" transform="' +
+          filamentMatrix(remain) +
+          '"></path>'
+    var label =
+      empty
+        ? '<text x="124" y="270" text-anchor="middle" font-weight="bold" font-size="64" fill="#9aa0a6">空</text>'
+        : '<text x="152" y="270" text-anchor="middle" font-weight="bold" font-size="56" fill="' +
+          escapeHtml(fg) +
+          '">' +
+          escapeHtml(pctText) +
+          '</text>'
+    var spot = on
+      ? '<rect x="0" y="260" width="258" height="186" fill="url(#dc-spot-' + uid + ')"></rect>'
+      : ''
     return (
       '<button type="button" class="dc-ams-slot' +
-      (solo ? ' dc-ams-solo' : '') +
       (on ? ' is-on' : '') +
       (empty ? ' is-empty' : '') +
       '" data-slot="' +
       sid +
-      '" style="--dc-slot:' +
-      escapeHtml(col) +
-      ';--dc-slot-fg:' +
-      fg +
       '" title="' +
-      escapeHtml(label + ' · ' + mat) +
+      escapeHtml(title) +
       '">' +
-      '<div class="dc-spool-ico">' +
-      '<span class="dc-spool-flange dc-spool-flange-l" aria-hidden="true"></span>' +
-      '<span class="dc-spool-hub" aria-hidden="true">' +
-      '<span class="dc-spool-filament"></span>' +
-      '</span>' +
-      '<span class="dc-spool-flange dc-spool-flange-r" aria-hidden="true"></span>' +
-      '<div class="dc-ams-meta">' +
-      '<span class="dc-ams-label">' +
-      escapeHtml(label) +
-      '</span>' +
-      '<strong>' +
-      escapeHtml(String(mat).slice(0, 8)) +
-      '</strong>' +
-      '<em>K ' +
-      (Number.isFinite(k) ? k.toFixed(3) : '0.040') +
-      '</em>' +
-      (remain != null ? '<small>' + remain + remainUnit + '</small>' : '') +
-      '</div></div></button>'
+      '<svg class="dc-spool-svg" viewBox="0 0 248 500" preserveAspectRatio="xMidYMid meet" focusable="false">' +
+      '<defs>' +
+      '<path id="dc-oval-' +
+      uid +
+      '" d="M 0 -63 C 35 -63 63 -35 63 0 C 63 35 35 63 0 63 C -35 63 -63 35 -63 0 C -63 -35 -35 -63 0 -63 z" vector-effect="non-scaling-stroke"></path>' +
+      '<path id="dc-center-' +
+      uid +
+      '" d="M 0 -63 C 35 -63 63 -35 63 0 C 63 35 35 63 0 63 L -624 63 L -624 -63 z" vector-effect="non-scaling-stroke"></path>' +
+      '<radialGradient id="dc-spot-' +
+      uid +
+      '" cx="50%" cy="70%" r="50%" fx="50%" fy="100%">' +
+      '<stop offset="0%" stop-color="rgba(255,255,255,0.9)"></stop>' +
+      '<stop offset="100%" stop-color="rgba(255,255,0,0)"></stop>' +
+      '</radialGradient>' +
+      '</defs>' +
+      '<filter id="dc-blur-' +
+      uid +
+      '" width="1.3" height="1.16">' +
+      '<feGaussianBlur in="SourceAlpha" stdDeviation="3"></feGaussianBlur>' +
+      '<feOffset dx="18" dy="0" result="oBlur"></feOffset>' +
+      '<feFlood flood-color="#000" flood-opacity=".67"></feFlood>' +
+      '<feComposite in2="oBlur" operator="in"></feComposite>' +
+      '<feMerge><feMergeNode></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge>' +
+      '</filter>' +
+      '<g transform="matrix(0.59,0,0,3.95,197,250)">' +
+      '<use href="#dc-oval-' +
+      uid +
+      '" style="filter:url(#dc-blur-' +
+      uid +
+      ')" fill="' +
+      wheel +
+      '"></use>' +
+      '<use href="#dc-oval-' +
+      uid +
+      '" transform="scale(0.41)" style="filter:url(#dc-blur-' +
+      uid +
+      ')" fill="' +
+      wheel +
+      '"></use>' +
+      '<use href="#dc-center-' +
+      uid +
+      '" transform="scale(0.41)" fill="' +
+      wheel +
+      '"></use></g>' +
+      filament +
+      '<g transform="matrix(0.59,0,0,3.95,37,250)">' +
+      '<use href="#dc-oval-' +
+      uid +
+      '" style="filter:url(#dc-blur-' +
+      uid +
+      ')" fill="' +
+      wheel +
+      '"></use>' +
+      '<use href="#dc-oval-' +
+      uid +
+      '" transform="scale(0.41)" fill="#111111"></use></g>' +
+      spot +
+      label +
+      '</svg>' +
+      '<span class="dc-ams-num">' +
+      escapeHtml(opts.label != null ? String(opts.label) : String(sid)) +
+      '</span></button>'
     )
+  }
+
+  function liveAmsById(st) {
+    var map = Object.create(null)
+    var ams = Array.isArray(st && st.amsSlots) ? st.amsSlots : []
+    for (var i = 0; i < ams.length; i++) {
+      var slot = ams[i]
+      if (!slot) continue
+      map[Number(slot.id)] = slot
+    }
+    return map
+  }
+
+  function traySlotIds(st) {
+    var ams = Array.isArray(st && st.amsSlots) ? st.amsSlots : []
+    if (ams.length) {
+      var ids = []
+      var seen = Object.create(null)
+      for (var a = 0; a < ams.length; a++) {
+        var id = Number(ams[a].id)
+        ids.push(id)
+        seen[id] = 1
+      }
+      if (!seen[0]) ids.push(0)
+      return ids
+    }
+    return [0]
+  }
+
+  function slotLabel(sid, isAmsMachine) {
+    if (isAmsMachine && Number(sid) === 0) return '外挂'
+    return String(sid)
+  }
+
+  function slotTitle(sid, bound, live, empty, isAmsMachine) {
+    var name = slotLabel(sid, isAmsMachine)
+    if (bound) {
+      return (
+        name +
+        ' · ' +
+        materialOf(bound) +
+        ' ' +
+        (bound.color || '') +
+        ' · ' +
+        Math.round(Number(bound.remainGrams) || 0) +
+        'g / ' +
+        capacityOf(bound) +
+        'g'
+      )
+    }
+    if (!empty && live && live.material) {
+      return name + ' · 打印机 ' + live.material + '（满盘，绑定后显示耗材余量）'
+    }
+    return name + ' · 空（绑定耗材管理后显示颜色和余量）'
   }
 
   function buildHtml(deviceId, device, status, spools, jobs) {
@@ -512,84 +657,51 @@
     sess.fanPct = fan == null ? sess.fanPct : fan
     sess.speedPct = spd == null ? sess.speedPct : spd
 
-    var ams = Array.isArray(st.amsSlots) ? st.amsSlots : []
-
+    var amsLive = liveAmsById(st)
+    var trayIds = traySlotIds(st)
+    var isAmsMachine = Array.isArray(st.amsSlots) && st.amsSlots.length > 0
     var amsCards = ''
-    if (ams.length) {
-      for (var i = 0; i < ams.length; i++) {
-        var slot = ams[i]
-        var sid = Number(slot.id)
-        var bound = findBound(spools, deviceId, sid)
-        var mat = bound ? materialOf(bound) : slot.material || '空'
-        var col = bound ? colorOf(bound) : normalizeSlotColor(slot.color)
-        var emptySlot = !bound && (!slot.material || slot.material === '空')
-        if (emptySlot) col = '#4a4a4a'
-        var fg = textOnColor(col)
-        var k =
-          bound && bound.pa != null
-            ? Number(bound.pa)
-            : bound && bound.k != null
-              ? Number(bound.k)
-              : 0.04
-        var remain =
-          slot.remain != null ? round(slot.remain) : bound ? round(bound.remainGrams) : null
-        amsCards += spoolCardHtml({
-          slotId: sid,
-          label: 'A' + sid,
-          mat: mat,
-          col: col,
-          fg: fg,
-          k: k,
-          remain: remain,
-          remainUnit: bound ? 'g' : '%',
-          on: sess.selectedSlot === sid,
-          empty: emptySlot
-        })
+    for (var i = 0; i < trayIds.length; i++) {
+      var sid = Number(trayIds[i])
+      var bound = findBound(spools, deviceId, sid)
+      var live = amsLive[sid]
+      var printerColor = liveSlotHasColor(live)
+      var empty = !bound && !printerColor
+      var col = '#4a4a4a'
+      var remain = null
+      if (printerColor) {
+        col = normalizeSlotColor(live.color)
+        remain = null
+        empty = false
       }
+      if (bound) {
+        remain = remainPctOf(bound)
+        empty = false
+        if (!printerColor) col = colorOf(bound)
+      }
+      var fg = empty ? '#9aa0a6' : textOnColor(col)
+      amsCards += spoolCardHtml({
+        slotId: sid,
+        label: slotLabel(sid, isAmsMachine),
+        col: col,
+        fg: fg,
+        remain: remain,
+        on: sess.selectedSlot === sid,
+        empty: empty,
+        title: slotTitle(sid, bound, live, empty, isAmsMachine)
+      })
     }
 
-    var extBound = findBound(spools, deviceId, 0)
-    var extCol = extBound ? colorOf(extBound) : '#555555'
-    var extEmpty = !extBound
-    var extFg = textOnColor(extCol)
-    var extMat = extBound ? materialOf(extBound) : '未绑定'
-    var extRemain = extBound ? round(extBound.remainGrams) : null
-    var extK =
-      extBound && extBound.pa != null
-        ? Number(extBound.pa)
-        : extBound && extBound.k != null
-          ? Number(extBound.k)
-          : 0.04
+    if (trayIds.length && trayIds.indexOf(sess.selectedSlot) < 0) {
+      sess.selectedSlot = Number(trayIds[0])
+    }
 
-    var isExtOnly = !ams.length
-    if (isExtOnly) sess.selectedSlot = 0
-
-    var extCardHtml = spoolCardHtml({
-      slotId: 0,
-      label: isExtOnly ? '外挂' : 'Ext',
-      mat: extMat,
-      col: extCol,
-      fg: extFg,
-      k: extK,
-      remain: extRemain,
-      remainUnit: 'g',
-      on: sess.selectedSlot === 0 || isExtOnly,
-      solo: isExtOnly,
-      empty: extEmpty
-    })
-
-    var amsBoardHtml = isExtOnly
-      ? '<div class="dc-ams-board is-ext-only">' +
-        '<div class="dc-ams-shelf">' +
-        '<div class="dc-ams-center">' +
-        extCardHtml +
-        '</div></div></div>'
-      : '<div class="dc-ams-board">' +
-        '<div class="dc-ams-shelf">' +
-        '<div class="dc-ams-row">' +
-        amsCards +
-        extCardHtml +
-        '</div></div></div>'
+    var amsBoardHtml =
+      '<div class="dc-ams-board">' +
+      '<div class="dc-ams-shelf">' +
+      '<div class="dc-ams-row">' +
+      amsCards +
+      '</div></div></div>'
 
     var spoolOpts = '<option value="">绑定料卷…</option>'
     for (var s = 0; s < spools.length; s++) {
@@ -707,7 +819,7 @@
       amsBoardHtml +
       '<div class="dc-ams-bind">' +
       '<label>' +
-      (isExtOnly ? '外挂料 · 绑定本地料卷' : '当前槽 · 绑定本地料卷') +
+      (isAmsMachine ? '当前槽 · 绑定本地料卷' : '当前料位 · 绑定本地料卷') +
       '</label>' +
       '<select class="dc-spool-select">' +
       spoolOpts +
@@ -723,7 +835,7 @@
       '<button type="button" data-act="unload">退料</button>' +
       '<button type="button" data-act="load">进料</button>' +
       '</div>' +
-      '<p class="dc-hint">绑定本地料卷后打印完成自动扣减。多色 AMS 按剩余%；单色/外挂读取任务用量。XY/Z 点动走宿主 jog（Klipper/拓竹等支持 G-code 的机型）。</p>' +
+      '<p class="dc-hint">料盘样式来自 Mainsail。有 AMS 颜色的槽位显示打印机颜色（满盘）；绑定耗材管理后按料卷余量。不能读颜色的机器默认空盘，绑定后才显示颜色和余量。</p>' +
       '</div>' +
       buildQueueHtml(deviceId, jobs || []) +
       '</div>'
@@ -1023,7 +1135,7 @@
       touchUiLock(sess, 5000)
       runSafe(deviceId, function () {
         return bindSpool(spoolId, deviceId, sess.selectedSlot).then(function () {
-          toast('已绑定槽 ' + (sess.selectedSlot === 0 ? 'Ext' : 'A' + sess.selectedSlot))
+          toast('已绑定' + (sess.selectedSlot === 0 ? '外挂' : '料位 ' + sess.selectedSlot))
           sess.pendingSpoolId = ''
           clearUiLock(sess)
           if (typeof bodyRefreshers[deviceId] === 'function') bodyRefreshers[deviceId](true)
@@ -1064,7 +1176,7 @@
         return loadSpools().then(function (spools) {
           var bound = findBound(spools, deviceId, sess.selectedSlot)
           if (!bound) {
-            toast('当前槽未绑定', false)
+            toast('当前料位未绑定', false)
             return
           }
           return unbindSpool(bound.id, deviceId, sess.selectedSlot).then(function () {

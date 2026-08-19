@@ -167,7 +167,11 @@ export function computeDeviceCapabilities(d: DeviceRow | null | undefined): Devi
     camera = lan
     gcode = false
     moonrakerProxy = false
-    if (!lan) notes.push('拓竹云端模式不支持本机 FTPS 传文件/舱摄；请用局域网')
+    if (mode === 'cloud') {
+      notes.push('云端拓竹只能看状态/简单控制；上传文件开打请用局域网添加（IP+访问码），并开「仅局域网+开发者模式」')
+    } else if (!hasLanHost(d)) {
+      notes.push('缺少局域网 IP，无法 FTPS 传文件/开打')
+    }
   } else if (brand === 'elegoo') {
     control = {
       ...none,

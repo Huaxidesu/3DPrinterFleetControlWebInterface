@@ -446,7 +446,7 @@ CRUD 与插件一致：`insert` / `select` / `getOne` / `update` / `remove` / `c
 | `fullsite_board` | `assets/examples/theme-fullsite-board/` | **full** | 示例：整站 `.htm` 骨架 + islands（上传 ZIP） |
 | `sample_topnav` | `assets/examples/theme-sample/` | skin | 可下载：topnav + list + split |
 
-**本机下载**：[hanye-theme-sample-topnav.zip](/api/v1/docs/downloads/hanye-theme-sample-topnav.zip)
+**本机下载**：[sample_topnav-1.1.0.zip](/downloads/examples/sample_topnav-1.1.0.zip)
 
 安装：软件设置 → **主题** → 上传 ZIP → **启用**。仅 `default` 为内置；其它开发主题放 `assets/examples/`，不要放进 `assets/themes/`。
 

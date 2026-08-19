@@ -13,7 +13,7 @@
 
 旧版 `main.js` 导出同名钩子（`apiVersion` 1）经 **CompatAdapter** 继续可用。
 
-**示例包**：[hanye-plugin-kernel-v2.zip](/api/v1/docs/downloads/hanye-plugin-kernel-v2.zip) · 源码 `assets/examples/plugin-kernel-v2/`。
+**示例包**：[demo_kernel_v2-1.1.0.zip](/downloads/examples/demo_kernel_v2-1.1.0.zip) · 源码 `assets/examples/plugin-kernel-v2/`。
 
 ---
 

@@ -487,7 +487,7 @@ export class DeviceHost {
     try {
       const d = this.findDevice(req.deviceId)
       if (!d) return { ok: false, message: '设备不存在' }
-      const brand = String(d.brand || '')
+      const brand = String(d.brand || '').toLowerCase()
 
       if (isMoonrakerDevice(d)) {
         const http = this.moonrakerHttp.get(req.deviceId)
@@ -518,15 +518,31 @@ export class DeviceHost {
         return { ok: false, message: `未知操作 ${req.op}` }
       }
 
-      if (brand === 'bambu' && d.connectionMode !== 'cloud') {
+      if (brand === 'bambu') {
+        if (d.connectionMode === 'cloud') {
+          return {
+            ok: false,
+            message:
+              '拓竹云端设备无法上传文件开打。请删除后用「局域网」重新添加（填 IP + 访问码），打印机屏幕开启「仅局域网模式」和「开发者模式」后再试。'
+          }
+        }
         const host = deviceHost(d)
+        if (!host) {
+          return {
+            ok: false,
+            message: '缺少打印机局域网 IP，无法 FTPS 传文件。请在设备设置里填写 bambuHost / IP。'
+          }
+        }
         const accessCode = await this.secretFor(d)
+        if (!accessCode) {
+          return { ok: false, message: '缺少局域网访问码，无法连接打印机 FTPS。' }
+        }
         if (req.op === 'listFiles') {
           const files = await bambuListFiles({ host, accessCode })
           return { ok: true, files }
         }
         if (req.op === 'uploadFile') {
-          const name = req.filename || 'upload.gcode.3mf'
+          const name = req.filename || 'upload.gcode'
           const buf = Buffer.from(req.contentBase64 || '', 'base64')
           const up = await bambuUploadFile({ host, accessCode, filename: name, content: buf })
           return { ok: true, filename: name, remotePath: up.remotePath }
@@ -545,7 +561,10 @@ export class DeviceHost {
         return { ok: false, message: `未知操作 ${req.op}` }
       }
 
-      return { ok: false, message: '该设备不支持文件操作（见 getDeviceCapabilities）' }
+      return {
+        ok: false,
+        message: `该设备不支持文件操作（品牌 ${brand || '未知'}，见 getDeviceCapabilities）`
+      }
     } catch (e) {
       return { ok: false, message: e instanceof Error ? e.message : String(e) }
     }
@@ -556,6 +575,16 @@ export class DeviceHost {
     filename: string
     contentBase64?: string
   }): Promise<{ ok: boolean; message?: string; remotePath?: string }> {
+    const d = this.findDevice(req.deviceId)
+    if (!d) return { ok: false, message: '设备不存在' }
+    const brand = String(d.brand || '').toLowerCase()
+    if (brand === 'bambu' && d.connectionMode === 'cloud') {
+      return {
+        ok: false,
+        message:
+          '拓竹云端设备无法上传文件开打。请用「局域网」重新添加（IP + 访问码），并开启「仅局域网 + 开发者模式」。'
+      }
+    }
     let remotePath = req.filename
     if (req.contentBase64) {
       const up = await this.deviceOp({

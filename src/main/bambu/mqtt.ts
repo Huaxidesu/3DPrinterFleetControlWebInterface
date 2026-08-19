@@ -345,16 +345,48 @@ export function createBambuMqttBridge(
         })
         break
       }
-      case 'print_file':
-        if (!extra?.filename) throw new Error('缺少文件名')
-        publishRaw(connectionId, {
-          print: {
-            sequence_id: seq,
-            command: 'gcode_file',
-            param: extra.filename
-          }
-        })
+      case 'print_file': {
+        const raw = String(extra?.filename || '')
+          .trim()
+          .replace(/^\/+/, '')
+        if (!raw) throw new Error('缺少文件名')
+        const base = raw.split('/').pop() || raw
+        const remote = raw.includes('/') ? raw : `cache/${base}`
+        const is3mf = /\.gcode\.3mf$/i.test(base) || /\.3mf$/i.test(base)
+        if (is3mf) {
+          // LAN FTPS 上传后用 project_file（与 Bambu Studio / HA 一致）
+          publishRaw(connectionId, {
+            print: {
+              sequence_id: seq,
+              command: 'project_file',
+              param: 'Metadata/plate_1.gcode',
+              url: `ftp:///${remote}`,
+              subtask_name: base.replace(/\.gcode\.3mf$/i, '').replace(/\.3mf$/i, '') || base,
+              project_id: '0',
+              profile_id: '0',
+              task_id: '0',
+              subtask_id: '0',
+              timelapse: false,
+              bed_type: 'auto',
+              bed_levelling: true,
+              flow_cali: true,
+              vibration_cali: false,
+              layer_inspect: false,
+              use_ams: false
+            }
+          })
+        } else {
+          // 纯 .gcode：部分固件可用；更稳妥请用切片机导出的 .gcode.3mf
+          publishRaw(connectionId, {
+            print: {
+              sequence_id: seq,
+              command: 'gcode_file',
+              param: remote
+            }
+          })
+        }
         break
+      }
       case 'set_fan': {
         // Match Bambu Studio / HA: 10% steps, PWM 0–255, P1 part / P2 aux / P3 chamber
         const pct = Math.max(0, Math.min(100, Math.round((extra?.percent ?? 0) / 10) * 10))

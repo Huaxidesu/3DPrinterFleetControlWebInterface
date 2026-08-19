@@ -311,6 +311,6 @@ export function formatAmsBinding(spool: SpoolRecord, deviceName?: string): strin
   if (!b?.deviceId || !Number.isFinite(Number(b.slotId)) || Number(b.slotId) < 0) return '—'
   const name = deviceName || b.deviceId.slice(0, 8)
   const slot = Number(b.slotId)
-  const slotLabel = slot === 0 ? '外挂/单色' : `AMS ${slot}`
+  const slotLabel = `料位 ${slot}`
   return `${name} · ${slotLabel}`
 }
