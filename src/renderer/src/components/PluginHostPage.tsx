@@ -92,7 +92,7 @@ export function PluginHostPage({
             minHeight: '70vh',
             border: 'none',
             borderRadius: 8,
-            background: '#fff'
+            background: 'transparent'
           }}
         />
       </PluginSlot>

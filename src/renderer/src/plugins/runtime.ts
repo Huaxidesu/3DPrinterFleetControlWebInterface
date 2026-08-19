@@ -811,6 +811,55 @@ class HanyePluginRuntime {
     return useDeviceStore.getState().selectedId
   }
 
+  /** Snapshot of device ids in current list order (not persisted). */
+  getDeviceIds(): string[] {
+    return useDeviceStore.getState().devices.map((d) => d.id)
+  }
+
+  getDeviceStatuses(): Record<string, unknown> {
+    return useDeviceStore.getState().statuses as Record<string, unknown>
+  }
+
+  /**
+   * Reorder in-memory device list (pagination / 卡片网格用).
+   * Does not write devices.json unless the user later saves a device.
+   */
+  setDeviceOrder(ids: string[]): boolean {
+    const list = useDeviceStore.getState().devices
+    if (!Array.isArray(ids) || !list.length) return false
+    const byId = new Map(list.map((d) => [d.id, d]))
+    const next: typeof list = []
+    const seen = new Set<string>()
+    for (const raw of ids) {
+      const id = String(raw || '')
+      const row = byId.get(id)
+      if (!row || seen.has(id)) continue
+      next.push(row)
+      seen.add(id)
+    }
+    for (const row of list) {
+      if (!seen.has(row.id)) next.push(row)
+    }
+    if (next.length !== list.length) return false
+    let same = true
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].id !== next[i].id) {
+        same = false
+        break
+      }
+    }
+    if (same) return false
+    useDeviceStore.setState({ devices: next })
+    return true
+  }
+
+  subscribeDeviceState(fn: () => void): () => void {
+    if (typeof fn !== 'function') return () => {}
+    return useDeviceStore.subscribe(() => {
+      fn()
+    })
+  }
+
   async exchangeLoginGrant(
     grantToken: string,
     opts?: { serverUrl?: string; applySession?: boolean }

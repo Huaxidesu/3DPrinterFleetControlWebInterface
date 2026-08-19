@@ -90,6 +90,8 @@ interface DeviceState {
   toggleChecked: (id: string) => void
   setCheckedIds: (ids: string[]) => void
   clearChecked: () => void
+  /** After add: clear filters and jump to the page containing the device */
+  revealDevice: (id: string, tech?: PrinterTech) => void
   addDevice: (device: DeviceConfig, apiKey?: string) => Promise<void>
   removeDevice: (id: string) => Promise<void>
   updateDevice: (device: DeviceConfig) => Promise<void>
@@ -364,13 +366,35 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
   setCheckedIds: (checkedIds) => set({ checkedIds }),
   clearChecked: () => set({ checkedIds: [] }),
 
+  revealDevice: (id, tech = 'fdm') => {
+    set((s) => {
+      const section = tech === 'resin' ? 'resin' : 'fdm'
+      const filter: BrandFilter = 'all'
+      const search = ''
+      const statusFilters: DeviceStatusKind[] = []
+      const visible = selectVisibleDevices({
+        devices: s.devices,
+        filter,
+        search,
+        tech: tech === 'resin' ? 'resin' : 'fdm'
+      })
+      const idx = visible.findIndex((d) => d.id === id)
+      const ps = s.pageSize || 20
+      let page = 1
+      if (idx >= 0 && ps > 0) page = Math.floor(idx / ps) + 1
+      return { section, filter, search, statusFilters, page, selectedId: id }
+    })
+  },
+
   addDevice: async (device, apiKey) => {
+    const tech = deviceTech(device)
     if (isClientMode()) {
       await serverSend('/api/v1/devices', 'POST', {
         ...device,
         secret: apiKey
       })
       await get().refreshFromServer()
+      get().revealDevice(device.id, tech)
       return
     }
     if (apiKey && device.secretKey) {
@@ -393,6 +417,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
       // status already emitted
     }
     set((s) => ({ adapters: { ...s.adapters, [device.id]: adapter } }))
+    get().revealDevice(device.id, tech)
   },
 
   removeDevice: async (id) => {

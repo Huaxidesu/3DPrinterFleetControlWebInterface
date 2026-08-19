@@ -349,7 +349,32 @@ async function bootstrap(): Promise<void> {
     getStatuses: () => deviceHostEngine.statuses as Record<string, unknown>,
     controlDevice: (deviceId, payload) => deviceHostEngine.control(deviceId, payload),
     deviceOp: (req) => deviceHostEngine.deviceOp(req),
-    startPrint: (req) => deviceHostEngine.startPrint(req),
+    startPrint: async (req) => {
+      // Gate all plugin/queue print_file paths (kernel + v1 startPrint)
+      try {
+        const before = (await pluginManager.runHook(
+          'control_before',
+          {
+            proceed: true,
+            deviceId: req.deviceId,
+            payload: { action: 'print_file', filename: req.filename }
+          },
+          { source: 'pluginManager.startPrint' }
+        )) as { proceed?: boolean; message?: string; body?: { message?: string } }
+        if (before && before.proceed === false) {
+          return {
+            ok: false,
+            message:
+              before.message ||
+              (before.body && before.body.message) ||
+              '开打被插件拦截'
+          }
+        }
+      } catch (e) {
+        console.error('[pluginManager.startPrint] control_before', e)
+      }
+      return deviceHostEngine.startPrint(req)
+    },
     getDeviceCapabilities: (deviceId) => deviceHostEngine.getCapabilities(deviceId),
     sendGcode: (deviceId, script) => deviceHostEngine.sendGcode(deviceId, script),
     moonrakerRequest: (deviceId, req) =>
@@ -762,8 +787,56 @@ async function bootstrap(): Promise<void> {
     getUserStore: () => userStore as never,
     getPrintRequestStore: () => printRequestStore as never,
     getPresenceStore: () => presenceStore,
-    onApprovedPrint: (req) => deviceHostEngine.approvedPrint(req),
-    onStartPrintJob: (req) => deviceHostEngine.approvedPrint(req),
+    onApprovedPrint: async (req) => {
+      try {
+        const before = (await pluginManager.runHook(
+          'control_before',
+          {
+            proceed: true,
+            deviceId: req.deviceId,
+            payload: { action: 'print_file', filename: req.filename }
+          },
+          { source: 'queue.approvedPrint' }
+        )) as { proceed?: boolean; message?: string; body?: { message?: string } }
+        if (before && before.proceed === false) {
+          return {
+            ok: false,
+            message:
+              before.message ||
+              (before.body && before.body.message) ||
+              '开打被插件拦截'
+          }
+        }
+      } catch (e) {
+        console.error('[queue] control_before', e)
+      }
+      return deviceHostEngine.approvedPrint(req)
+    },
+    onStartPrintJob: async (req) => {
+      try {
+        const before = (await pluginManager.runHook(
+          'control_before',
+          {
+            proceed: true,
+            deviceId: req.deviceId,
+            payload: { action: 'print_file', filename: req.filename }
+          },
+          { source: 'queue.startPrintJob' }
+        )) as { proceed?: boolean; message?: string; body?: { message?: string } }
+        if (before && before.proceed === false) {
+          return {
+            ok: false,
+            message:
+              before.message ||
+              (before.body && before.body.message) ||
+              '开打被插件拦截'
+          }
+        }
+      } catch (e) {
+        console.error('[queue] control_before', e)
+      }
+      return deviceHostEngine.approvedPrint(req)
+    },
     allowLocalAdmin: true,
     onReconnectDevices: () => deviceHostEngine.reconnectAll(),
     getQuoteHistoryStore: () => quoteHistoryStore as never,
