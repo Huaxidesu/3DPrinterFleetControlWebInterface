@@ -274,8 +274,10 @@ export function SoftSettingsAbout() {
         const r = await fetchUpdateCheck(force, useMirror)
         setStatus(r)
         if (r.mirrors?.length) setMirrors(r.mirrors)
-        if (isMirrorId(r.preferred)) setMirror(r.preferred)
+        // 以本次检查实际使用的平台为准，避免被服务器 preferred 覆盖成别的镜像
+        if (isMirrorId(useMirror)) setMirror(useMirror)
         else if (isMirrorId(r.mirror)) setMirror(r.mirror)
+        else if (isMirrorId(r.preferred)) setMirror(r.preferred)
         localStorage.setItem(LS_LAST, String(Date.now()))
         if (!r.reachable) {
           localStorage.removeItem(LS_HINT)

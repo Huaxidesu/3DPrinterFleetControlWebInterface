@@ -6,7 +6,7 @@ set -e
 
 export PATH=/var/apps/nodejs_v20/target/bin:$PATH
 
-APP_DIR="/vol2/1000/3d/hanye-printer-monitor-4.0.8"
+APP_DIR="/vol2/1000/3d/hanye-printer-monitor-4.0.9"
 LOG="/home/hanye/hanye-update.log"
 STOP="/home/hanye/stop-hanye.sh"
 START="/home/hanye/start-hanye.sh"

@@ -757,6 +757,72 @@ async function maybeScheduleDockerRebuild(result: UpdateApplyResult): Promise<Up
   }
 }
 
+function isZipMagic(buf: Uint8Array): boolean {
+  // PK\x03\x04 / PK\x05\x06 / PK\x07\x08
+  return (
+    buf.length >= 4 &&
+    buf[0] === 0x50 &&
+    buf[1] === 0x4b &&
+    (buf[2] === 0x03 || buf[2] === 0x05 || buf[2] === 0x07)
+  )
+}
+
+function looksLikeHtml(buf: Uint8Array): boolean {
+  const head = Buffer.from(buf.subarray(0, Math.min(buf.length, 200)))
+    .toString('utf8')
+    .trimStart()
+    .toLowerCase()
+  return head.startsWith('<!doctype') || head.startsWith('<html') || head.includes('<html')
+}
+
+async function cloneTagToTemp(
+  tagName: string,
+  mirror: UpdateMirror
+): Promise<{ ok: boolean; srcRoot?: string; tmp?: string; log: string }> {
+  const tmp = mkdtempSync(join(tmpdir(), 'hanye-upd-git-'))
+  const dest = join(tmp, 'repo')
+  const candidates = Array.from(
+    new Set([tagName, tagName.replace(/^v/i, ''), `v${tagName.replace(/^v/i, '')}`].filter(Boolean))
+  )
+  const notes: string[] = []
+  for (const branch of candidates) {
+    try {
+      rmSync(dest, { recursive: true, force: true })
+    } catch {
+      /* ignore */
+    }
+    try {
+      const { stdout, stderr } = await execFileAsync(
+        'git',
+        ['clone', '--depth', '1', '--branch', branch, mirror.gitUrl, dest],
+        {
+          timeout: 180_000,
+          maxBuffer: 8 * 1024 * 1024,
+          env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+        }
+      )
+      const out = `${stdout || ''}${stderr || ''}`.trim()
+      if (!existsSync(join(dest, 'package.json'))) {
+        notes.push(`git clone ${branch} → 无 package.json\n${out}`)
+        continue
+      }
+      notes.push(`git clone --depth 1 --branch ${branch} ${mirror.gitUrl} ok`)
+      return { ok: true, srcRoot: dest, tmp, log: notes.join('\n') }
+    } catch (e) {
+      const err = e as { stdout?: string; stderr?: string; message?: string }
+      notes.push(
+        `git clone ${branch} → ${(err.stderr || err.stdout || err.message || '失败').trim()}`
+      )
+    }
+  }
+  try {
+    rmSync(tmp, { recursive: true, force: true })
+  } catch {
+    /* ignore */
+  }
+  return { ok: false, log: notes.join('\n') || `git clone ${mirror.label} 失败` }
+}
+
 async function downloadAndExtractTag(
   tag: string,
   destRoot: string,
@@ -772,7 +838,11 @@ async function downloadAndExtractTag(
       const t = setTimeout(() => ctrl.abort(), 180_000)
       const res = await fetch(url, {
         signal: ctrl.signal,
-        headers: { 'User-Agent': 'hanye-printer-monitor-update-apply', Accept: 'application/zip' },
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (compatible; hanye-printer-monitor-update/4.0; +https://gitee.com)',
+          Accept: 'application/zip,application/octet-stream,*/*'
+        },
         redirect: 'follow'
       })
       clearTimeout(t)
@@ -780,55 +850,87 @@ async function downloadAndExtractTag(
         notes.push(`${url} → HTTP ${res.status}`)
         continue
       }
-      buf = new Uint8Array(await res.arrayBuffer())
-      notes.push(`downloaded ${url} (${buf.byteLength} bytes)`)
+      const next = new Uint8Array(await res.arrayBuffer())
+      const ctype = String(res.headers.get('content-type') || '')
+      if (!isZipMagic(next) || looksLikeHtml(next) || /text\/html/i.test(ctype)) {
+        notes.push(
+          `${url} → 非 ZIP（${ctype || 'unknown'}, ${next.byteLength} bytes；Gitee/GitCode 常返回网页反爬页）`
+        )
+        continue
+      }
+      buf = next
+      notes.push(`downloaded zip ${url} (${buf.byteLength} bytes)`)
       break
     } catch (e) {
       notes.push(`${url} → ${e instanceof Error ? e.message : String(e)}`)
     }
   }
-  if (!buf) {
-    return { ok: false, log: notes.join('\n') || `下载 ${mirror.label} 源码包失败` }
+
+  if (buf) {
+    const tmp = mkdtempSync(join(tmpdir(), 'hanye-upd-'))
+    try {
+      const files = unzipSync(buf)
+      for (const [name, data] of Object.entries(files)) {
+        if (name.endsWith('/')) continue
+        const norm = name.replace(/^[/\\]+/, '').replace(/\\/g, '/')
+        if (norm.includes('..')) continue
+        const out = join(tmp, ...norm.split('/'))
+        mkdirSync(dirname(out), { recursive: true })
+        writeFileSync(out, data)
+      }
+      const top = readdirSync(tmp).filter((n) => {
+        try {
+          return statSync(join(tmp, n)).isDirectory()
+        } catch {
+          return false
+        }
+      })
+      const srcRoot = top.length === 1 ? join(tmp, top[0]!) : tmp
+      if (!existsSync(join(srcRoot, 'package.json'))) {
+        notes.push('解压后未找到 package.json，改试 git clone')
+      } else {
+        const overlay = overlayCopyTree(srcRoot, destRoot)
+        if (!overlay.ok) {
+          return { ok: false, log: `${notes.join('\n')}\n${overlay.log}` }
+        }
+        return { ok: true, log: `${notes.join('\n')}\n${overlay.log}` }
+      }
+    } catch (e) {
+      notes.push(`解压失败：${e instanceof Error ? e.message : String(e)}，改试 git clone`)
+    } finally {
+      try {
+        rmSync(tmp, { recursive: true, force: true })
+      } catch {
+        /* ignore */
+      }
+    }
+  } else {
+    notes.push(`ZIP 不可用，改用 git clone（${mirror.label}）`)
   }
 
-  const tmp = mkdtempSync(join(tmpdir(), 'hanye-upd-'))
+  const cloned = await cloneTagToTemp(tagName, mirror)
+  notes.push(cloned.log)
+  if (!cloned.ok || !cloned.srcRoot) {
+    return {
+      ok: false,
+      log:
+        notes.join('\n') ||
+        `下载 ${mirror.label} 源码失败（ZIP 与 git clone 均不可用）`
+    }
+  }
   try {
-    const files = unzipSync(buf)
-    for (const [name, data] of Object.entries(files)) {
-      if (name.endsWith('/')) continue
-      const norm = name.replace(/^[/\\]+/, '').replace(/\\/g, '/')
-      if (norm.includes('..')) continue
-      const out = join(tmp, ...norm.split('/'))
-      mkdirSync(dirname(out), { recursive: true })
-      writeFileSync(out, data)
-    }
-    const top = readdirSync(tmp).filter((n) => {
-      try {
-        return statSync(join(tmp, n)).isDirectory()
-      } catch {
-        return false
-      }
-    })
-    const srcRoot = top.length === 1 ? join(tmp, top[0]!) : tmp
-    if (!existsSync(join(srcRoot, 'package.json'))) {
-      return { ok: false, log: `${notes.join('\n')}\n解压后未找到 package.json` }
-    }
-
-    const overlay = overlayCopyTree(srcRoot, destRoot)
+    const overlay = overlayCopyTree(cloned.srcRoot, destRoot)
     if (!overlay.ok) {
       return { ok: false, log: `${notes.join('\n')}\n${overlay.log}` }
     }
     return { ok: true, log: `${notes.join('\n')}\n${overlay.log}` }
-  } catch (e) {
-    return {
-      ok: false,
-      log: `${notes.join('\n')}\n${e instanceof Error ? e.message : String(e)}`
-    }
   } finally {
-    try {
-      rmSync(tmp, { recursive: true, force: true })
-    } catch {
-      /* ignore */
+    if (cloned.tmp) {
+      try {
+        rmSync(cloned.tmp, { recursive: true, force: true })
+      } catch {
+        /* ignore */
+      }
     }
   }
 }
@@ -1019,15 +1121,17 @@ async function applyGithubSourceUpdateCore(opts?: {
 
   const arch = await downloadAndExtractTag(tag, root, mirror)
   if (!arch.ok) {
+    const perm = /无法覆盖|EACCES|EPERM|EROFS/.test(arch.log)
+    const hint = perm
+      ? arch.log
+      : `从 ${mirror.label} 拉取源码失败：请确认服务器已安装 git，且能访问 ${mirror.hostHint}（浏览器能打开不等于本机服务能下载）`
     return {
       ok: false,
       reachable: false,
       updated: false,
       currentVersion,
       latestVersion: check.latestVersion,
-      message: /无法覆盖|EACCES|EPERM|EROFS/.test(arch.log)
-        ? arch.log
-        : `下载/解压源码包失败：请确认服务器能访问 ${mirror.hostHint}`,
+      message: hint,
       log: arch.log,
       deployMode,
       mirror: mirrorId

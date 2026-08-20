@@ -61,7 +61,9 @@ export const UPDATE_MIRRORS: Record<UpdateMirrorId, UpdateMirror> = {
     apiTags: `https://gitcode.com/api/v5/repos/hanye6666/${REPO}/tags?sort=updated&direction=desc&per_page=30`,
     atomUrl: null,
     zipUrls: (tag) => [
+      // GitCode 网页 archive 常返回反爬 HTML；保留作尝试，失败后走 git clone
       `https://gitcode.com/hanye6666/${REPO}/repository/archive/${tag}.zip`,
+      `https://gitcode.com/hanye6666/${REPO}/archive/refs/tags/${tag}.zip`,
       `https://gitcode.com/hanye6666/${REPO}/-/archive/${tag}/${REPO}-${tag}.zip`
     ]
   }
