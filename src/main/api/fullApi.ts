@@ -18,6 +18,7 @@ import {
   normalizeMoonrakerProxyPath
 } from './controlShared'
 import { handleOnboardApi } from './onboardApi'
+import { isCloudSpoolId, overlayBind } from './filamentBackend'
 import type { OperationLog } from '../../shared/operationLog'
 import { deviceNameFromPath, makeOperationLog } from '../operationLogs/helpers'
 
@@ -979,6 +980,23 @@ export async function handleFullApi(opts: {
       return true
     }
     const file = deps.getFilamentPath()
+    if (isCloudSpoolId(spoolId)) {
+      overlayBind(
+        {
+          filamentPath: file,
+          getSecret: () => null,
+          setSecret: () => undefined,
+          deleteSecret: () => undefined
+        },
+        spoolId,
+        deviceId,
+        slotId,
+        kind === 'bind'
+      )
+      deps.onFilamentChanged?.()
+      sendJson(res, 200, { ok: true, spool: { id: spoolId } })
+      return true
+    }
     let spools = readJsonArray(file) as Array<Record<string, unknown>>
     try {
       const idx = spools.findIndex((s) => String(s.id) === spoolId)

@@ -965,6 +965,61 @@ html.nav-rail-collapsed .app-shell-layout-workspace .app-rail {
   gap: 12px;
 }
 
+.filament-backend-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.bambu-filament-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  background: rgba(22, 24, 30, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+
+.bambu-add-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.bambu-add-tab {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
+  color: inherit;
+  border-radius: 10px;
+  padding: 14px 12px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.bambu-add-tab.active {
+  border-color: #52c41a;
+  color: #52c41a;
+  background: rgba(82, 196, 26, 0.08);
+}
+
+.bambu-form-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 560px) {
+  .bambu-form-row-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
 .filament-tabs.ant-tabs {
   margin-bottom: 0;
 }

@@ -2,15 +2,18 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Tabs, Typography } from 'antd'
 import {
   AppstoreAddOutlined,
+  AuditOutlined,
   BankOutlined,
   BellOutlined,
+  HistoryOutlined,
   InfoCircleOutlined,
   MenuOutlined,
   PictureOutlined,
   RobotOutlined,
   SettingOutlined,
   ShopOutlined,
-  SkinOutlined
+  SkinOutlined,
+  TeamOutlined
 } from '@ant-design/icons'
 import { SoftSettingsGeneral } from './softSettings/SoftSettingsGeneral'
 import { SoftSettingsBrand } from './softSettings/SoftSettingsBrand'
@@ -22,8 +25,12 @@ import { SoftSettingsPlugins } from './softSettings/SoftSettingsPlugins'
 import { SoftSettingsThemes } from './softSettings/SoftSettingsThemes'
 import { SoftSettingsMarketplace } from './softSettings/SoftSettingsMarketplace'
 import { SoftSettingsAbout } from './softSettings/SoftSettingsAbout'
+import { QuoteHistoryPage } from './QuoteHistoryPage'
+import { UsersPage } from './UsersPage'
+import { PrintApprovalPage } from './PrintApprovalPage'
 import { isAdminUi, isRemoteDataMode } from '../utils/appMode'
 import { isWebBrowser } from '@shared/platform'
+import { useAuthGrants } from '../stores/authStore'
 import { PluginSlot } from '../plugins/PluginSlot'
 import {
   getHanyePlugin,
@@ -80,17 +87,26 @@ export function SoftSettingsPage({ initialTab }: { initialTab?: SoftTab } = {}) 
   const [pluginTabs, setPluginTabs] = useState<PluginSettingsTab[]>(() =>
     getHanyePlugin().getSettingsTabs()
   )
+  const { can } = useAuthGrants()
   const isClient = isRemoteDataMode()
   const isWeb = isWebBrowser()
-  const showEnterprise = !isClient || (isWeb && isAdminUi())
-  const showAi = isAdminUi()
-  const showAlerts = isAdminUi()
-  const showPlugins = isAdminUi()
-  const showThemes = isAdminUi()
-  const showMarketplace = isAdminUi()
+  const adminUi = isAdminUi()
+  const showEnterprise = !isClient || (isWeb && adminUi)
+  const showAi = adminUi
+  const showAlerts = adminUi
+  const showPlugins = adminUi
+  const showThemes = adminUi
+  const showMarketplace = adminUi
   /** Branding + nav are core Soft Settings tabs — always visible when this page is open */
   const showBrand = true
   const showNav = true
+  const showQuoteHistory = adminUi && can('nav.tools')
+  const showUsers = adminUi && can('nav.users')
+  const showPrintApprove =
+    can('nav.printApprove') ||
+    can('print.approve') ||
+    can('device.action.print.request') ||
+    can('device.action.print')
 
   useEffect(() => {
     if (initialTab) setTab(initialTab)
@@ -117,11 +133,17 @@ export function SoftSettingsPage({ initialTab }: { initialTab?: SoftTab } = {}) 
     (tab === 'themes' && !showThemes) ||
     (tab === 'marketplace' && !showMarketplace) ||
     (tab === 'brand' && !showBrand) ||
-    (tab === 'nav' && !showNav)
+    (tab === 'nav' && !showNav) ||
+    (tab === 'quoteHistory' && !showQuoteHistory) ||
+    (tab === 'users' && !showUsers) ||
+    (tab === 'printApprove' && !showPrintApprove)
       ? 'general'
       : tab === 'general' ||
           tab === 'brand' ||
           tab === 'nav' ||
+          tab === 'quoteHistory' ||
+          tab === 'users' ||
+          tab === 'printApprove' ||
           tab === 'enterprise' ||
           tab === 'ai' ||
           tab === 'alerts' ||
@@ -193,6 +215,81 @@ export function SoftSettingsPage({ initialTab }: { initialTab?: SoftTab } = {}) 
               <SoftSettingsNav />
             </PluginSlot>
             <PluginSlot name="settings.tab.nav.after" />
+          </div>
+        )
+      })
+    }
+
+    if (showQuoteHistory) {
+      entries.push({
+        key: 'quoteHistory',
+        sort: SETTINGS_TAB_ORDER.quoteHistory,
+        label: (
+          <span>
+            <HistoryOutlined /> 报价记录
+          </span>
+        ),
+        children: (
+          <div className="settings-tab-panel">
+            <PluginSlot name="settings.tab.quoteHistory.before" />
+            <PluginSlot name="settings.tab.quoteHistory" replace>
+              <PluginSlot name="quote.history.before" />
+              <PluginSlot name="quote.history" replace>
+                <QuoteHistoryPage />
+              </PluginSlot>
+              <PluginSlot name="quote.history.after" />
+            </PluginSlot>
+            <PluginSlot name="settings.tab.quoteHistory.after" />
+          </div>
+        )
+      })
+    }
+
+    if (showUsers) {
+      entries.push({
+        key: 'users',
+        sort: SETTINGS_TAB_ORDER.users,
+        label: (
+          <span>
+            <TeamOutlined /> 用户权限
+          </span>
+        ),
+        children: (
+          <div className="settings-tab-panel">
+            <PluginSlot name="settings.tab.users.before" />
+            <PluginSlot name="settings.tab.users" replace>
+              <PluginSlot name="users.page.before" />
+              <PluginSlot name="users.page" replace>
+                <UsersPage />
+              </PluginSlot>
+              <PluginSlot name="users.page.after" />
+            </PluginSlot>
+            <PluginSlot name="settings.tab.users.after" />
+          </div>
+        )
+      })
+    }
+
+    if (showPrintApprove) {
+      entries.push({
+        key: 'printApprove',
+        sort: SETTINGS_TAB_ORDER.printApprove,
+        label: (
+          <span>
+            <AuditOutlined /> 打印审核/队列
+          </span>
+        ),
+        children: (
+          <div className="settings-tab-panel">
+            <PluginSlot name="settings.tab.printApprove.before" />
+            <PluginSlot name="settings.tab.printApprove" replace>
+              <PluginSlot name="print.approve.before" />
+              <PluginSlot name="print.approve" replace>
+                <PrintApprovalPage />
+              </PluginSlot>
+              <PluginSlot name="print.approve.after" />
+            </PluginSlot>
+            <PluginSlot name="settings.tab.printApprove.after" />
           </div>
         )
       })
@@ -364,7 +461,10 @@ export function SoftSettingsPage({ initialTab }: { initialTab?: SoftTab } = {}) 
     showMarketplace,
     showPlugins,
     showBrand,
-    showNav
+    showNav,
+    showQuoteHistory,
+    showUsers,
+    showPrintApprove
   ])
 
   return (
@@ -376,7 +476,7 @@ export function SoftSettingsPage({ initialTab }: { initialTab?: SoftTab } = {}) 
       </Typography.Title>
       <Typography.Paragraph type="secondary" className="settings-page-desc">
         纯网页版（电脑 / 手机自适应）。顶部「品牌」改网站名/Logo/标题/底部/ICO；「导航」改菜单与
-        HTML 单页；「应用集市」一键安装插件/主题；「主题」「插件」管理本地扩展。
+        HTML 单页；「报价记录 / 用户权限 / 打印审核」在此管理；「应用集市」一键安装插件/主题。
       </Typography.Paragraph>
       <PluginSlot name="settings.header.after" />
       <PluginSlot name="settings.content" replace>

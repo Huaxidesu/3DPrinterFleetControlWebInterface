@@ -4,12 +4,10 @@ import type { MenuProps } from 'antd'
 import {
   AppstoreAddOutlined,
   AppstoreOutlined,
-  AuditOutlined,
   EnvironmentOutlined,
   ExperimentOutlined,
   FileTextOutlined,
   FolderOutlined,
-  HistoryOutlined,
   InboxOutlined,
   LinkOutlined,
   MenuFoldOutlined,
@@ -17,7 +15,6 @@ import {
   RobotOutlined,
   SettingOutlined,
   ShopOutlined,
-  TeamOutlined,
   ToolOutlined,
   VideoCameraOutlined
 } from '@ant-design/icons'
@@ -33,18 +30,18 @@ import {
 } from '@shared/navConfig'
 import { PluginSlot } from '../plugins/PluginSlot'
 
+/** 已迁入「软件设置」标签，不再出现在侧栏 */
+const SETTINGS_ONLY_NAV = new Set(['quoteHistory', 'users', 'printApprove'])
+
 const BUILTIN_ICONS: Record<string, ReactNode> = {
   fdm: <AppstoreOutlined />,
   resin: <ExperimentOutlined />,
   filament: <InboxOutlined />,
   tools: <ToolOutlined />,
-  quoteHistory: <HistoryOutlined />,
   monitorWall: <VideoCameraOutlined />,
   monitorZones: <EnvironmentOutlined />,
   models: <ShopOutlined />,
   aiModels: <RobotOutlined />,
-  users: <TeamOutlined />,
-  printApprove: <AuditOutlined />,
   settings: <SettingOutlined />
 }
 
@@ -60,13 +57,10 @@ const ITEMS: {
   { key: 'resin', label: '光固化', icon: <ExperimentOutlined />, perm: 'nav.devices' },
   { key: 'filament', label: '耗材管理', icon: <InboxOutlined />, perm: 'nav.filament' },
   { key: 'tools', label: '常用工具', icon: <ToolOutlined />, perm: 'nav.tools' },
-  { key: 'quoteHistory', label: '报价记录', icon: <HistoryOutlined />, perm: 'nav.tools', serverOnly: true },
   { key: 'monitorWall', label: '内部监控', icon: <VideoCameraOutlined />, perm: 'nav.monitor' },
   { key: 'monitorZones', label: '区域监控', icon: <EnvironmentOutlined />, perm: 'nav.monitor' },
   { key: 'models', label: '模型网站', icon: <ShopOutlined /> },
   { key: 'aiModels', label: 'AI 建模网', icon: <RobotOutlined /> },
-  { key: 'users', label: '用户权限', icon: <TeamOutlined />, perm: 'nav.users', serverOnly: true },
-  { key: 'printApprove', label: '打印审核/队列', icon: <AuditOutlined />, perm: 'nav.printApprove' },
   { key: 'settings', label: '软件设置', icon: <SettingOutlined />, perm: 'nav.settings' }
 ]
 
@@ -85,6 +79,7 @@ function canShowBuiltin(
   key: string,
   opts: { adminUi: boolean; can: (p: string) => boolean }
 ): boolean {
+  if (SETTINGS_ONLY_NAV.has(key)) return false
   const meta = ITEMS.find((x) => x.key === key)
   if (!meta) {
     // plugin or unknown target — allow if looks like plugin
@@ -93,14 +88,6 @@ function canShowBuiltin(
   }
   if (meta.serverOnly && !opts.adminUi) return false
   if (meta.clientHide && !opts.adminUi) return false
-  if (meta.key === 'printApprove') {
-    return (
-      opts.can('nav.printApprove') ||
-      opts.can('print.approve') ||
-      opts.can('device.action.print.request') ||
-      opts.can('device.action.print')
-    )
-  }
   if (meta.perm && !opts.can(meta.perm)) return false
   return true
 }
@@ -385,7 +372,9 @@ export function SideNav({
       <Menu
         mode={mode}
         inlineCollapsed={inlineCollapsed}
-        selectedKeys={[section]}
+        selectedKeys={[
+          SETTINGS_ONLY_NAV.has(String(section)) ? 'settings' : String(section)
+        ]}
         openKeys={mode === 'inline' && !inlineCollapsed ? openKeys : undefined}
         onOpenChange={(keys) => setOpenKeys(keys as string[])}
         onClick={({ key }) => {

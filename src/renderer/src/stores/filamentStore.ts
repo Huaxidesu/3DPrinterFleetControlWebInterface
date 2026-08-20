@@ -8,12 +8,18 @@ import {
   spoolRolls
 } from '../utils/spoolBinding'
 import { isClientMode, serverGet, serverSend } from '../api/serverClient'
+import { fetchFilamentBackend, setFilamentBackendMode } from '../api/filamentBackendApi'
 import { newId } from '../utils/id'
 
+export type FilamentSource = 'local' | 'bambu'
 export type FilamentTechTab = 'fdm' | 'resin'
 
 type FilamentState = {
   spools: SpoolRecord[]
+  /** local | bambu_studio — global linking mode (set by active page) */
+  backend: 'local' | 'bambu_studio' | null
+  /** last list fetch source */
+  source: FilamentSource
   loading: boolean
   tech: FilamentTechTab
   search: string
@@ -24,8 +30,13 @@ type FilamentState = {
   lowStockThreshold: number
   addModalOpen: boolean
   init: () => Promise<void>
-  /** Client: re-fetch spools from server (silent skips loading flash) */
-  refreshFromServer: (opts?: { silent?: boolean }) => Promise<void>
+  refreshFromServer: (opts?: { silent?: boolean; source?: FilamentSource }) => Promise<void>
+  /** Enter local filament page — switch global mode + load local only */
+  activateLocalFilament: () => Promise<void>
+  /** Enter bambu filament page — switch global mode + load cloud only */
+  activateBambuFilament: () => Promise<void>
+  /** Tools / devices — reload spools for current global backend */
+  refreshForLinking: () => Promise<void>
   setTech: (t: FilamentTechTab) => void
   setSearch: (q: string) => void
   setBrandFilter: (id: string | 'all') => void
@@ -77,8 +88,31 @@ export function spoolCapacityGrams(s: Pick<SpoolRecord, 'totalGrams' | 'rolls'>)
   return Math.round(per * spoolRolls(s))
 }
 
+export function isCloudSpool(s: SpoolRecord): boolean {
+  if (s.bambuCloud === true) return true
+  return /^\d+$/.test(String(s.id || '').trim())
+}
+
+/** Spools eligible for device bind / quote link under current backend */
+export function spoolsForLinking(
+  spools: SpoolRecord[],
+  backend: 'local' | 'bambu_studio' | null
+): SpoolRecord[] {
+  if (backend === 'bambu_studio') return spools.filter(isCloudSpool)
+  return spools.filter((s) => !isCloudSpool(s))
+}
+
+async function reloadAfterMutation(get: () => FilamentState): Promise<void> {
+  const { source, backend } = get()
+  const src: FilamentSource =
+    source || (backend === 'bambu_studio' ? 'bambu' : 'local')
+  await get().refreshFromServer({ silent: true, source: src })
+}
+
 export const useFilamentStore = create<FilamentState>((set, get) => ({
   spools: [],
+  backend: null,
+  source: 'local',
   loading: true,
   tech: 'fdm',
   search: '',
@@ -91,10 +125,17 @@ export const useFilamentStore = create<FilamentState>((set, get) => ({
 
   init: async () => {
     if (isClientMode()) {
-      await get().refreshFromServer()
+      try {
+        const fb = await fetchFilamentBackend()
+        const src: FilamentSource = fb.backend === 'bambu_studio' ? 'bambu' : 'local'
+        set({ backend: fb.backend, source: src })
+        await get().refreshFromServer({ source: src })
+      } catch {
+        await get().refreshFromServer({ source: 'local' })
+      }
       return
     }
-    set({ loading: true })
+    set({ loading: true, backend: 'local', source: 'local' })
     const raw = ((await window.electronAPI?.filament?.load()) || []) as SpoolRecord[]
     const spools = (Array.isArray(raw) ? raw : []).map((s) => migrateSpoolRecord(s))
     set({ spools, loading: false })
@@ -104,23 +145,61 @@ export const useFilamentStore = create<FilamentState>((set, get) => ({
   refreshFromServer: async (opts) => {
     if (!isClientMode()) return
     const silent = Boolean(opts?.silent)
+    const source = opts?.source ?? get().source ?? 'local'
     if (!silent) set({ loading: true })
     try {
-      const data = await serverGet<{ filament?: SpoolRecord[]; spools?: SpoolRecord[] }>(
-        '/api/v1/filament'
-      )
+      const data = await serverGet<{
+        filament?: SpoolRecord[]
+        spools?: SpoolRecord[]
+        backend?: { backend?: 'local' | 'bambu_studio' }
+        message?: string
+      }>(`/api/v1/filament?source=${source}`)
       const raw = (data.spools || data.filament || []) as SpoolRecord[]
       const spools = (Array.isArray(raw) ? raw : []).map((s) => migrateSpoolRecord(s))
-      const prev = get().spools
-      if (JSON.stringify(prev) === JSON.stringify(spools)) {
-        if (!silent) set({ loading: false })
-        return
-      }
-      set({ spools, loading: false })
+      const backend =
+        data.backend?.backend === 'bambu_studio' || data.backend?.backend === 'local'
+          ? data.backend.backend
+          : get().backend
+      set({ spools, backend: backend ?? get().backend, source, loading: false })
     } catch (e) {
       console.error(e)
       if (!silent) set({ spools: [], loading: false })
     }
+  },
+
+  activateLocalFilament: async () => {
+    if (isClientMode()) {
+      try {
+        const st = await setFilamentBackendMode('local')
+        set({ backend: st.backend, source: 'local', tech: get().tech })
+      } catch (e) {
+        console.error(e)
+      }
+      await get().refreshFromServer({ source: 'local' })
+      return
+    }
+    set({ backend: 'local', source: 'local' })
+    await get().init()
+  },
+
+  activateBambuFilament: async () => {
+    if (isClientMode()) {
+      try {
+        const st = await setFilamentBackendMode('bambu_studio')
+        set({ backend: st.backend, source: 'bambu', tech: 'fdm' })
+      } catch (e) {
+        console.error(e)
+      }
+      await get().refreshFromServer({ source: 'bambu' })
+      return
+    }
+    set({ backend: 'bambu_studio', source: 'bambu', tech: 'fdm' })
+  },
+
+  refreshForLinking: async () => {
+    const backend = get().backend
+    const source: FilamentSource = backend === 'bambu_studio' ? 'bambu' : 'local'
+    await get().refreshFromServer({ silent: true, source })
   },
 
   setTech: (tech) => set({ tech, brandFilter: 'all', materialFilter: 'all' }),
@@ -136,7 +215,7 @@ export const useFilamentStore = create<FilamentState>((set, get) => ({
   addSpool: async (input) => {
     if (isClientMode()) {
       const data = await serverSend<{ spool?: SpoolRecord }>('/api/v1/filament', 'POST', input)
-      await get().init()
+      await reloadAfterMutation(get)
       return data.spool || (get().spools[0] as SpoolRecord)
     }
     const now = new Date().toISOString()
@@ -156,7 +235,7 @@ export const useFilamentStore = create<FilamentState>((set, get) => ({
   updateSpool: async (spool) => {
     if (isClientMode()) {
       await serverSend(`/api/v1/filament/${encodeURIComponent(spool.id)}`, 'PUT', spool)
-      await get().init()
+      await reloadAfterMutation(get)
       return
     }
     const next = withSyncedBindings({
@@ -171,7 +250,7 @@ export const useFilamentStore = create<FilamentState>((set, get) => ({
   removeSpool: async (id) => {
     if (isClientMode()) {
       await serverSend(`/api/v1/filament/${encodeURIComponent(id)}`, 'DELETE')
-      await get().init()
+      await reloadAfterMutation(get)
       return
     }
     const spools = get().spools.filter((s) => s.id !== id)
@@ -182,7 +261,7 @@ export const useFilamentStore = create<FilamentState>((set, get) => ({
   archiveSpool: async (id, archived = true) => {
     if (isClientMode()) {
       await serverSend(`/api/v1/filament/${encodeURIComponent(id)}/archive`, 'POST', { archived })
-      await get().init()
+      await reloadAfterMutation(get)
       return
     }
     const spools = get().spools.map((s) =>
@@ -209,7 +288,7 @@ export const useFilamentStore = create<FilamentState>((set, get) => ({
           deviceId: binding.deviceId,
           slotId: Number(binding.slotId)
         })
-        await get().init()
+        await reloadAfterMutation(get)
         return true
       } catch (e) {
         console.error(e)
@@ -248,7 +327,7 @@ export const useFilamentStore = create<FilamentState>((set, get) => ({
         deviceId,
         slotId: slot
       })
-      await get().init()
+      await reloadAfterMutation(get)
       return
     }
     const now = new Date().toISOString()
@@ -277,7 +356,7 @@ export const useFilamentStore = create<FilamentState>((set, get) => ({
           slotId: slot
         })
       }
-      await get().init()
+      await reloadAfterMutation(get)
       return
     }
     const now = new Date().toISOString()

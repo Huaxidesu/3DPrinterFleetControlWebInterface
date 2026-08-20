@@ -37,6 +37,26 @@ export async function serverSend<T = unknown>(
   return data
 }
 
+/** HTTP 成功时返回 JSON，即使业务字段 `ok: false`（例如登录需要验证码） */
+export async function serverSendAllowFail<T = unknown>(
+  path: string,
+  method: string,
+  body?: unknown
+): Promise<T> {
+  const { serverUrl, token } = useAuthStore.getState()
+  if (!token) throw new Error('未登录')
+  const res = await apiFetch(serverUrl, path, {
+    method,
+    token,
+    body: body === undefined ? undefined : JSON.stringify(body)
+  })
+  const data = (await res.json()) as T & { message?: string }
+  if (!res.ok) {
+    throw new Error((data as { message?: string }).message || `请求失败 ${res.status}`)
+  }
+  return data
+}
+
 /** Ask server to reconnect printers, then return fresh device list payload */
 export async function serverReconnectAndFetchDevices(): Promise<{
   devices: unknown[]

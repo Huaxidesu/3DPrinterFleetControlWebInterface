@@ -704,11 +704,18 @@ async function bootstrap(): Promise<void> {
       if (!d || typeof d.secretKey !== 'string' || !d.secretKey) return null
       return secretsCache[d.secretKey] ?? null
     },
+    getSecret: (key) => secretsCache[key] ?? null,
     setDeviceSecret: (secretKey, value) => {
       storeSecret(secretKey, value)
     },
     deleteDeviceSecret: (secretKey) => {
-      void deleteSecret(secretKey).catch((e) => console.error('[secret] delete failed', e))
+      delete secretsCache[secretKey]
+      if (USE_MYSQL) {
+        void deleteSecret(secretKey).catch((e) => console.error('[secret] delete failed', e))
+        return
+      }
+      const secretsPath = join(DATA_ROOT, 'secrets.json')
+      writeFileSync(secretsPath, JSON.stringify(secretsCache, null, 2), 'utf8')
     },
     startLanDiscover: async (opts) => {
       if (lanDiscoverRunning) return { ok: false, message: 'LAN discover already running' }

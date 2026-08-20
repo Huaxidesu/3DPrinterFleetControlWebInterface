@@ -47,6 +47,8 @@ import {
   filamentPluginFormSeed,
   filamentPreserveExtras
 } from './FilamentPluginHosts'
+import { FilamentBackendBar } from './FilamentBackendBar'
+import { BambuFilamentPanel } from './BambuFilamentPanel'
 
 const PRESET_COLORS: { label: string; hex: string }[] = [
   { label: '黑', hex: '#1a1a1a' },
@@ -104,7 +106,10 @@ function materialDisplay(id: string): string {
 }
 
 export function FilamentManager() {
-  const init = useFilamentStore((s) => s.init)
+  const source = useFilamentStore((s) => s.source)
+  const backend = useFilamentStore((s) => s.backend)
+  const isBambu = source === 'bambu' || backend === 'bambu_studio'
+  const refreshForLinking = useFilamentStore((s) => s.refreshForLinking)
   const loading = useFilamentStore((s) => s.loading)
   const spools = useFilamentStore((s) => s.spools)
   const tech = useFilamentStore((s) => s.tech)
@@ -222,16 +227,21 @@ export function FilamentManager() {
   }
 
   useEffect(() => {
-    void init()
-  }, [init])
+    void refreshForLinking()
+  }, [refreshForLinking])
+
+  useEffect(() => {
+    if (isBambu && tech === 'resin') setTech('fdm')
+  }, [isBambu, tech, setTech])
 
   useEffect(() => {
     if (!addModalOpen) return
+    if (isBambu) return // BambuFilamentPanel 自己处理顶栏「添加」
     openCreate()
     closeAddModal()
     // Intentionally only react to addModalOpen from header
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addModalOpen])
+  }, [addModalOpen, isBambu])
 
   const syncFdmRemain = (override?: { totalGrams?: number; rolls?: number }) => {
     if (tech !== 'fdm') return
@@ -519,16 +529,18 @@ export function FilamentManager() {
               开封重置
             </Button>
           ) : null}
-          <Button
-            type="link"
-            size="small"
-            onClick={async () => {
-              await archiveSpool(row.id, !row.archived)
-              message.success(row.archived ? '已取消归档' : '已归档')
-            }}
-          >
-            {row.archived ? '取消归档' : '归档'}
-          </Button>
+          {!isBambu ? (
+            <Button
+              type="link"
+              size="small"
+              onClick={async () => {
+                await archiveSpool(row.id, !row.archived)
+                message.success(row.archived ? '已取消归档' : '已归档')
+              }}
+            >
+              {row.archived ? '取消归档' : '归档'}
+            </Button>
+          ) : null}
           {rowActions.map((a) => (
             <Button
               key={a.id}
@@ -597,6 +609,11 @@ export function FilamentManager() {
       <PluginSlot name="filament.header.before" context={slotCtx} />
       <PluginSlot name="filament.header" replace context={slotCtx} />
       <PluginSlot name="filament.header.after" context={slotCtx} />
+      <FilamentBackendBar />
+      {isBambu ? (
+        <BambuFilamentPanel />
+      ) : (
+        <>
       <PluginSlot name="filament.toolbar.before" context={slotCtx} />
       <div className="filament-toolbar">
         <Tabs
@@ -672,10 +689,12 @@ export function FilamentManager() {
               仅低库存{lowCount > 0 ? ` (${lowCount})` : ''}
             </Typography.Text>
           </Space>
-          <Space size={6}>
-            <Switch checked={showArchived} onChange={setShowArchived} size="small" />
-            <Typography.Text type="secondary">显示已归档</Typography.Text>
-          </Space>
+          {!isBambu ? (
+            <Space size={6}>
+              <Switch checked={showArchived} onChange={setShowArchived} size="small" />
+              <Typography.Text type="secondary">显示已归档</Typography.Text>
+            </Space>
+          ) : null}
         </Space>
       </div>
       <PluginSlot name="filament.filters.after" context={slotCtx} />
@@ -917,6 +936,8 @@ export function FilamentManager() {
           <PluginSlot name="filament.form.after" context={slotCtx} />
         </PluginSlot>
       </Modal>
+        </>
+      )}
     </div>
   )
 }

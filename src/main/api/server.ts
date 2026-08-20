@@ -79,6 +79,25 @@ import type { NavConfigStore } from '../nav/navConfigStore'
 import { handleSsoPublicApi } from '../auth/ssoApi'
 import { serveWebStatic, webClientAvailable } from './webStatic'
 import {
+  amsSyncFromPrinters,
+  createCloudSpool,
+  deleteCloudSpool,
+  getFilamentBackendState,
+  isCloudSpoolId,
+  listCloudSpools,
+  loginFilamentBambu,
+  logoutFilamentBambu,
+  mirrorCloudCreateToLocal,
+  mirrorLocalCreateToCloud,
+  overlayBind,
+  runMutualSync,
+  sendFilamentBambuCode,
+  setFilamentBackend,
+  setMutualSync,
+  updateCloudSpool,
+  type FilamentBackendKind
+} from './filamentBackend'
+import {
   applyGithubSourceUpdate,
   checkGithubUpdate,
   readLocalPackageVersion
@@ -640,6 +659,7 @@ export type ApiServerDeps = {
   getDeviceApiKey: MonitorApiDeps['getDeviceApiKey']
   setDeviceSecret: FullApiDeps['setDeviceSecret']
   deleteDeviceSecret: FullApiDeps['deleteDeviceSecret']
+  getSecret?: (key: string) => string | null
   onDeviceOp: FullApiDeps['onDeviceOp']
   onGetDeviceCapabilities?: FullApiDeps['onGetDeviceCapabilities']
   onMoonrakerRequest?: FullApiDeps['onMoonrakerRequest']
@@ -1771,10 +1791,179 @@ export class ApiServer {
         return
       }
 
+      if (method === 'GET' && path === '/api/v1/filament/backend') {
+        sendJson(res, 200, { ok: true, ...getFilamentBackendState(filamentCloudDeps(this.deps)) })
+        return
+      }
+
+      if (method === 'POST' && path === '/api/v1/filament/backend') {
+        if (auth.kind === 'user' && !hasPerm(effectivePermissions(auth.user), 'filament.edit')) {
+          sendJson(res, 403, { ok: false, message: '缺少权限：filament.edit' })
+          return
+        }
+        const raw = await readBody(req)
+        let body: { backend?: string; mutualSync?: boolean } = {}
+        try {
+          body = raw ? (JSON.parse(raw) as { backend?: string; mutualSync?: boolean }) : {}
+        } catch {
+          sendJson(res, 400, { ok: false, message: 'Invalid JSON body' })
+          return
+        }
+        const deps = filamentCloudDeps(this.deps)
+        if (typeof body.mutualSync === 'boolean' && body.backend == null) {
+          const st = setMutualSync(deps, body.mutualSync)
+          sendJson(res, 200, { ok: true, ...st })
+          return
+        }
+        const backend: FilamentBackendKind =
+          body.backend === 'bambu_studio' ? 'bambu_studio' : 'local'
+        let st = setFilamentBackend(deps, backend)
+        if (typeof body.mutualSync === 'boolean') {
+          st = setMutualSync(deps, body.mutualSync)
+        }
+        if (backend === 'bambu_studio' && !st.loggedIn) {
+          sendJson(res, 200, {
+            ok: true,
+            ...st,
+            message: '请登录拓竹账号以对接 Bambu Studio 耗材管理'
+          })
+          return
+        }
+        sendJson(res, 200, { ok: true, ...st })
+        return
+      }
+
+      if (method === 'POST' && path === '/api/v1/filament/bambu/send-code') {
+        if (auth.kind === 'user' && !hasPerm(effectivePermissions(auth.user), 'filament.edit')) {
+          sendJson(res, 403, { ok: false, message: '缺少权限：filament.edit' })
+          return
+        }
+        const raw = await readBody(req)
+        let body: { region?: string; account?: string } = {}
+        try {
+          body = raw ? (JSON.parse(raw) as { region?: string; account?: string }) : {}
+        } catch {
+          sendJson(res, 400, { ok: false, message: 'Invalid JSON body' })
+          return
+        }
+        const r = await sendFilamentBambuCode({
+          region: body.region === 'global' ? 'global' : 'china',
+          account: String(body.account || '')
+        })
+        sendJson(res, r.ok ? 200 : 400, r)
+        return
+      }
+
+      if (method === 'POST' && path === '/api/v1/filament/bambu/login') {
+        if (auth.kind === 'user' && !hasPerm(effectivePermissions(auth.user), 'filament.edit')) {
+          sendJson(res, 403, { ok: false, message: '缺少权限：filament.edit' })
+          return
+        }
+        const raw = await readBody(req)
+        let body: { region?: string; account?: string; password?: string; code?: string } = {}
+        try {
+          body = raw ? (JSON.parse(raw) as typeof body) : {}
+        } catch {
+          sendJson(res, 400, { ok: false, message: 'Invalid JSON body' })
+          return
+        }
+        const r = await loginFilamentBambu(filamentCloudDeps(this.deps), {
+          region: body.region === 'global' ? 'global' : 'china',
+          account: String(body.account || ''),
+          password: body.password,
+          code: body.code
+        })
+        sendJson(res, 200, { ...r, ...getFilamentBackendState(filamentCloudDeps(this.deps)) })
+        return
+      }
+
+      if (method === 'POST' && path === '/api/v1/filament/bambu/logout') {
+        if (auth.kind === 'user' && !hasPerm(effectivePermissions(auth.user), 'filament.edit')) {
+          sendJson(res, 403, { ok: false, message: '缺少权限：filament.edit' })
+          return
+        }
+        sendJson(res, 200, { ok: true, ...logoutFilamentBambu(filamentCloudDeps(this.deps)) })
+        return
+      }
+
+      if (method === 'POST' && path === '/api/v1/filament/bambu/ams-sync') {
+        if (auth.kind === 'user' && !hasPerm(effectivePermissions(auth.user), 'filament.edit')) {
+          sendJson(res, 403, { ok: false, message: '缺少权限：filament.edit' })
+          return
+        }
+        const devices = readJsonArray(this.deps.getDevicesPath()) as DeviceRow[]
+        const serials = devices
+          .filter((d) => String(d.brand || '') === 'bambu')
+          .map((d) => String(d.bambuDeviceId || d.serial || '').trim())
+          .filter(Boolean)
+        const r = await amsSyncFromPrinters(filamentCloudDeps(this.deps), serials)
+        sendJson(res, r.ok ? 200 : 400, r)
+        return
+      }
+
+      if (method === 'POST' && path === '/api/v1/filament/bambu/mutual-sync') {
+        if (auth.kind === 'user' && !hasPerm(effectivePermissions(auth.user), 'filament.edit')) {
+          sendJson(res, 403, { ok: false, message: '缺少权限：filament.edit' })
+          return
+        }
+        const deps = filamentCloudDeps(this.deps)
+        const raw = await readBody(req)
+        let body: { enable?: boolean } = {}
+        try {
+          body = raw ? (JSON.parse(raw) as { enable?: boolean }) : {}
+        } catch {
+          sendJson(res, 400, { ok: false, message: 'Invalid JSON body' })
+          return
+        }
+        if (typeof body.enable === 'boolean') {
+          setMutualSync(deps, body.enable)
+          if (!body.enable) {
+            sendJson(res, 200, {
+              ok: true,
+              ...getFilamentBackendState(deps),
+              message: '已关闭互相同步',
+              pushed: 0,
+              pulled: 0,
+              updated: 0,
+              skipped: 0
+            })
+            return
+          }
+        }
+        const r = await runMutualSync(deps)
+        this.deps.onFilamentChanged?.()
+        sendJson(res, r.ok ? 200 : 400, { ...r, ...getFilamentBackendState(deps) })
+        return
+      }
+
       if (method === 'GET' && path === '/api/v1/filament') {
         const tech = url.searchParams.get('tech')
         const archived = url.searchParams.get('archived')
+        const source = url.searchParams.get('source')
         let spools = readJsonArray(this.deps.getFilamentPath()) as SpoolRow[]
+        const fb = getFilamentBackendState(filamentCloudDeps(this.deps))
+
+        if (source === 'local') {
+          // local page / local linking only
+        } else if (source === 'bambu') {
+          if (!fb.loggedIn) {
+            sendJson(res, 200, { ok: true, spools: [], backend: fb, message: '未登录拓竹云' })
+            return
+          }
+          const cloud = await listCloudSpools(filamentCloudDeps(this.deps))
+          if (!cloud.ok) {
+            sendJson(res, 502, { ok: false, message: cloud.message, backend: fb })
+            return
+          }
+          spools = cloud.spools as SpoolRow[]
+        } else if (fb.backend === 'bambu_studio' && fb.loggedIn) {
+          const cloud = await listCloudSpools(filamentCloudDeps(this.deps))
+          if (!cloud.ok) {
+            sendJson(res, 502, { ok: false, message: cloud.message, backend: fb })
+            return
+          }
+          spools = cloud.spools as SpoolRow[]
+        }
         if (tech === 'fdm' || tech === 'resin') {
           spools = spools.filter((s) => s.tech === tech)
         }
@@ -1796,7 +1985,7 @@ export class ApiServer {
         } catch {
           /* ignore */
         }
-        sendJson(res, 200, { ok: true, spools })
+        sendJson(res, 200, { ok: true, spools, backend: fb })
         return
       }
 
@@ -1808,6 +1997,20 @@ export class ApiServer {
         const idx = spools.findIndex((s) => s.id === id)
 
         if (method === 'GET') {
+          if (idx < 0 && isCloudSpoolId(id)) {
+            const cloud = await listCloudSpools(filamentCloudDeps(this.deps))
+            if (!cloud.ok) {
+              sendJson(res, 502, { ok: false, message: cloud.message })
+              return
+            }
+            const spool = cloud.spools.find((s) => String(s.id) === id)
+            if (!spool) {
+              sendJson(res, 404, { ok: false, message: 'Spool not found' })
+              return
+            }
+            sendJson(res, 200, { ok: true, spool })
+            return
+          }
           if (idx < 0) {
             sendJson(res, 404, { ok: false, message: 'Spool not found' })
             return
@@ -1829,6 +2032,30 @@ export class ApiServer {
               sendJson(res, 403, { ok: false, message: `缺少权限：${need}` })
               return
             }
+          }
+          if (idx < 0 && isCloudSpoolId(id)) {
+            if (method === 'DELETE') {
+              const r = await deleteCloudSpool(filamentCloudDeps(this.deps), id)
+              sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true } : { ok: false, message: r.message })
+              this.deps.onFilamentChanged?.()
+              return
+            }
+            const raw = await readBody(req)
+            let body: Record<string, unknown> = {}
+            try {
+              body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
+            } catch {
+              sendJson(res, 400, { ok: false, message: 'Invalid JSON body' })
+              return
+            }
+            const r = await updateCloudSpool(filamentCloudDeps(this.deps), id, body)
+            if (!r.ok) {
+              sendJson(res, 400, { ok: false, message: r.message || '拓竹云更新失败' })
+              return
+            }
+            this.deps.onFilamentChanged?.()
+            sendJson(res, 200, { ok: true, spool: { id, ...body } })
+            return
           }
           if (idx < 0) {
             sendJson(res, 404, { ok: false, message: 'Spool not found' })
@@ -1987,17 +2214,51 @@ export class ApiServer {
         } catch {
           /* ignore */
         }
-        const created = createSpool(body)
-        if ('error' in created) {
-          sendJson(res, 400, { ok: false, message: created.error })
+        const depsFb = filamentCloudDeps(this.deps)
+        const createdLocal = async () => {
+          const created = createSpool(body)
+          if ('error' in created) {
+            sendJson(res, 400, { ok: false, message: created.error })
+            return
+          }
+          const file = this.deps.getFilamentPath()
+          const spools = readJsonArray(file) as SpoolRow[]
+          spools.unshift(created.spool)
+          writeSpools(file, spools)
+          try {
+            await mirrorLocalCreateToCloud(depsFb, created.spool as Record<string, unknown>)
+          } catch {
+            /* ignore mirror errors */
+          }
+          this.deps.onFilamentChanged?.()
+          sendJson(res, 200, { ok: true, spool: created.spool })
+        }
+
+        const fb = getFilamentBackendState(depsFb)
+        const tech = String(body.tech || 'fdm')
+        if (fb.backend === 'bambu_studio' && fb.loggedIn && tech !== 'resin') {
+          const r = await createCloudSpool(depsFb, body)
+          if (!r.ok) {
+            sendJson(res, 400, { ok: false, message: r.message || '拓竹云添加失败' })
+            return
+          }
+          const listed = await listCloudSpools(depsFb)
+          const cloudSpool = listed.ok ? listed.spools[0] : null
+          if (cloudSpool) {
+            try {
+              mirrorCloudCreateToLocal(depsFb, cloudSpool as Record<string, unknown>)
+            } catch {
+              /* ignore */
+            }
+          }
+          this.deps.onFilamentChanged?.()
+          sendJson(res, 200, {
+            ok: true,
+            spool: cloudSpool || { ...body }
+          })
           return
         }
-        const file = this.deps.getFilamentPath()
-        const spools = readJsonArray(file) as SpoolRow[]
-        spools.unshift(created.spool)
-        writeSpools(file, spools)
-        this.deps.onFilamentChanged?.()
-        sendJson(res, 200, { ok: true, spool: created.spool })
+        await createdLocal()
         return
       }
 
@@ -2612,6 +2873,15 @@ export class ApiServer {
 
 function writeSpools(path: string, spools: SpoolRow[]): void {
   writeJsonArray(path, spools)
+}
+
+function filamentCloudDeps(deps: ApiServerDeps) {
+  return {
+    filamentPath: deps.getFilamentPath(),
+    getSecret: (key: string) => deps.getSecret?.(key) || null,
+    setSecret: (key: string, value: string) => deps.setDeviceSecret(key, value),
+    deleteSecret: (key: string) => deps.deleteDeviceSecret(key)
+  }
 }
 
 function collectSpoolExtras(source: Record<string, unknown>): Record<string, unknown> {

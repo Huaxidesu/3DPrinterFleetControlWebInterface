@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   Button,
@@ -33,7 +33,7 @@ import { formatEtaFinish, formatRemain } from '../utils/timeFormat'
 import { AmsSlotChip } from './AmsSlotChip'
 import { BambuDevModeHelp } from './BambuDevModeHelp'
 import { CameraPanel } from './CameraPanel'
-import { useFilamentStore } from '../stores/filamentStore'
+import { useFilamentStore, spoolsForLinking } from '../stores/filamentStore'
 import { useAuthStore, useAuthGrants } from '../stores/authStore'
 import { isDeviceAiVisionEnabled } from '@shared/aiVision'
 import { findBrand } from '../filament/filamentBrands'
@@ -161,6 +161,11 @@ export function DeviceDetailDrawer({
   const [cameraLoading, setCameraLoading] = useState(false)
   const [queueSubmitting, setQueueSubmitting] = useState(false)
   const spools = useFilamentStore((s) => s.spools)
+  const filamentBackend = useFilamentStore((s) => s.backend)
+  const linkableSpools = useMemo(
+    () => spoolsForLinking(spools, filamentBackend),
+    [spools, filamentBackend]
+  )
   const bindSpoolAms = useFilamentStore((s) => s.bindSpoolAms)
   const clearSlotBinding = useFilamentStore((s) => s.clearSlotBinding)
   const { can, canDevice } = useAuthGrants()
@@ -810,12 +815,14 @@ export function DeviceDetailDrawer({
             耗材绑定
           </Typography.Title>
           <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-            绑定本地料卷后打印完成自动扣减。多色 AMS 按剩余%；单色/外挂自动读取任务用量，无需手填。
+            绑定料卷后打印完成自动扣减。当前仅显示
+            {filamentBackend === 'bambu_studio' ? '拓竹云端' : '本地'}
+            耗材（在「耗材管理」页顶部切换数据源）。
           </Typography.Paragraph>
           {device.brand === 'bambu' && st?.amsSlots?.length ? (
             <Space size={8} wrap style={{ marginBottom: 12 }}>
               {st.amsSlots.map((slot) => {
-                const bound = findSpoolBoundToSlot(spools, device.id, slot.id)
+                const bound = findSpoolBoundToSlot(linkableSpools, device.id, slot.id)
                 return (
                   <Space key={slot.id} direction="vertical" size={4}>
                     <AmsSlotChip slot={slot} />
@@ -841,7 +848,7 @@ export function DeviceDetailDrawer({
                             slotId: slot.id
                           })
                           if (!ok) {
-                            const s = spools.find((x) => x.id === spoolId)
+                            const s = linkableSpools.find((x) => x.id === spoolId)
                             message.warning(
                               `该料卷仅 ${spoolRolls(s || { rolls: 1 })} 卷，已绑满，无法再绑`
                             )
@@ -850,7 +857,7 @@ export function DeviceDetailDrawer({
                           message.success(`已绑定 AMS ${slot.id}`)
                         })()
                       }}
-                      options={spools
+                      options={linkableSpools
                         .filter((s) => s.tech === 'fdm' && !s.archived)
                         .map((s) => {
                           const left = spoolBindSlotsLeft(s)
@@ -870,7 +877,7 @@ export function DeviceDetailDrawer({
             </Space>
           ) : null}
           {(() => {
-            const extBound = findSpoolBoundToSlot(spools, device.id, 0)
+            const extBound = findSpoolBoundToSlot(linkableSpools, device.id, 0)
             return (
               <Space wrap align="center">
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>

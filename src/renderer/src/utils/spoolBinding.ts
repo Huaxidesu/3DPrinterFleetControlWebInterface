@@ -1,6 +1,11 @@
 import type { SpoolAmsBinding, SpoolRecord } from '../types/filament'
+import { rollsFromTotalGrams } from '@shared/spoolCatalog'
 
-export function spoolRolls(s: Pick<SpoolRecord, 'rolls'> | null | undefined): number {
+export function spoolRolls(s: Pick<SpoolRecord, 'rolls' | 'totalGrams'> | null | undefined): number {
+  // 拓竹云耗材：按总净重换算卷数（1000g=1 卷，不足也按 1 卷）
+  if (s && (s as SpoolRecord).bambuCloud) {
+    return rollsFromTotalGrams(Number(s.totalGrams) || 0)
+  }
   const n = Math.floor(Number(s?.rolls))
   if (!Number.isFinite(n) || n < 1) return 1
   return Math.min(99, n)

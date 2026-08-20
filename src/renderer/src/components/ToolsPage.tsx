@@ -26,8 +26,9 @@ import {
   UploadOutlined
 } from '@ant-design/icons'
 import { brandsForTech, findBrand } from '../filament/filamentBrands'
+import { brandIdForQuote, materialToCatalogId } from '@shared/spoolCatalog'
 import { FILAMENT_MATERIALS } from '../filament/filamentMaterials'
-import { useFilamentStore } from '../stores/filamentStore'
+import { useFilamentStore, selectVisibleSpools, spoolsForLinking } from '../stores/filamentStore'
 import { useAuthStore } from '../stores/authStore'
 import type { SpoolRecord } from '../types/filament'
 import { buildQuoteWorkbook, type QuoteOptionCosts } from '../utils/quoteXlsx'
@@ -227,8 +228,14 @@ function spoolRemainLabel(s: SpoolRecord): string {
 }
 
 function matchPresetId(materialId: string, tech: TechMode): string | null {
-  const exact = MATERIAL_PRESETS.find((m) => m.id === materialId && m.tech === tech)
+  const norm = materialId.trim().toLowerCase()
+  const exact = MATERIAL_PRESETS.find(
+    (m) => (m.id === materialId || m.id === norm) && m.tech === tech
+  )
   if (exact) return exact.id
+  const catalog = materialToCatalogId(materialId, tech)
+  const fromCatalog = MATERIAL_PRESETS.find((m) => m.id === catalog && m.tech === tech)
+  if (fromCatalog) return fromCatalog.id
   const aliases: Record<string, string> = {
     'resin-standard': 'resin-std',
     'resin-tough': 'resin-abs',
@@ -449,9 +456,10 @@ function parseGcodeMeta(text: string): { grams?: number; hours?: number; note?: 
 export function ToolsPage() {
   const saved = useMemo(() => loadDefaults(), [])
   const draft = quoteLiveDraft
-  const filamentInit = useFilamentStore((s) => s.init)
+  const refreshFilament = useFilamentStore((s) => s.refreshForLinking)
   const spools = useFilamentStore((s) => s.spools)
   const filamentLoading = useFilamentStore((s) => s.loading)
+  const filamentBackend = useFilamentStore((s) => s.backend)
   const appRole = useAuthStore((s) => s.role)
   const canManageSchemes = appRole === 'server' || isAdminUi()
   const schemesViaHttp = appRole !== 'server' && isAdminUi()
@@ -579,8 +587,8 @@ export function ToolsPage() {
   }, [])
 
   useEffect(() => {
-    void filamentInit()
-  }, [filamentInit])
+    void refreshFilament()
+  }, [refreshFilament, filamentBackend])
 
   const materials = useMemo(() => {
     const built = MATERIAL_PRESETS.filter((m) => m.tech === tech)
@@ -617,11 +625,11 @@ export function ToolsPage() {
 
   const linkedSpools = useMemo(
     () =>
-      spools
+      spoolsForLinking(spools, filamentBackend)
         .filter((s) => !s.archived && s.tech === tech)
         .slice()
         .sort((a, b) => a.remainGrams - b.remainGrams),
-    [spools, tech]
+    [spools, tech, filamentBackend]
   )
 
   const printHours = useMemo(() => {
@@ -923,18 +931,20 @@ export function ToolsPage() {
       patchOption(optId, { spoolId: null })
       return
     }
-    const s = spools.find((x) => x.id === spoolId)
+    const s = spools.find((x) => String(x.id) === String(spoolId))
     if (!s) return
     const preset = matchPresetId(s.material, tech)
     const ppk = pricePerKgFromSpool(s)
+    const brandName =
+      typeof s.brandName === 'string' ? s.brandName : typeof s.vendor === 'string' ? s.vendor : undefined
     setOptions((prev) =>
       prev.map((o) => {
         if (o.id !== optId) return o
         const next: MaterialOption = {
           ...o,
-          spoolId,
-          brandId: s.brandId,
-          materialId: preset || o.materialId,
+          spoolId: String(s.id),
+          brandId: brandIdForQuote(s.brandId, brandName),
+          materialId: preset || materialToCatalogId(s.material, tech) || o.materialId,
           color: s.color,
           colorHex: s.colorHex || o.colorHex,
           pricePerKg: ppk ?? o.pricePerKg
@@ -1376,6 +1386,23 @@ export function ToolsPage() {
               ? ' 管理员可将整套计算方案（含上传的 G-code）保存，便于日后查询加载。'
               : ' 计算方案库由管理员保存与查询。'}
           </Typography.Paragraph>
+          {filamentBackend === 'bambu_studio' ? (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginTop: 8, maxWidth: 720 }}
+              message="当前联动拓竹云端耗材"
+              description="代打计算器与设备绑定仅使用「耗材管理」里选中的拓竹 Studio 料卷。需要本地库存时，请到耗材管理切回「本地耗材」。"
+            />
+          ) : (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginTop: 8, maxWidth: 720 }}
+              message="当前联动本地耗材"
+              description="计算器与设备绑定仅使用本地料卷。需要拓竹云库存时，请到「耗材管理」选择「拓竹 Studio」。"
+            />
+          )}
         </div>
         {toolbarActions.length > 0 ? (
           <Space wrap size={8}>
@@ -1800,7 +1827,13 @@ export function ToolsPage() {
                           optionFilterProp="label"
                           options={linkedSpools.map((s) => {
                             const ppk = pricePerKgFromSpool(s)
-                            const brand = brandLabelOf(s.brandId)
+                            const brandName =
+                              typeof s.brandName === 'string'
+                                ? s.brandName
+                                : typeof s.vendor === 'string'
+                                  ? s.vendor
+                                  : undefined
+                            const brand = brandLabelOf(brandIdForQuote(s.brandId, brandName))
                             const mat =
                               FILAMENT_MATERIALS.find((m) => m.id === s.material)?.label ||
                               s.material

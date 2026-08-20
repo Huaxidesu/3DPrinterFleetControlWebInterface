@@ -1,7 +1,7 @@
 import type { PrinterLiveStatus } from '../types/printer'
 import type { SpoolRecord } from '../types/filament'
 import { deviceStatusKind } from './statusLabel'
-import { useFilamentStore, isLowStock } from '../stores/filamentStore'
+import { useFilamentStore, isLowStock, spoolsForLinking } from '../stores/filamentStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { isClientMode, serverGet, serverSend } from '../api/serverClient'
 import { findBrand } from '../filament/filamentBrands'
@@ -51,15 +51,14 @@ function rememberKey(key: string): void {
 }
 
 function boundSpoolsForDevice(deviceId: string): SpoolRecord[] {
-  return useFilamentStore
-    .getState()
-    .spools.filter(
-      (s) =>
-        !s.archived &&
-        spoolBindings(s).some(
-          (b) => b.deviceId === deviceId && Number.isFinite(Number(b.slotId)) && Number(b.slotId) >= 0
-        )
-    )
+  const { spools, backend } = useFilamentStore.getState()
+  return spoolsForLinking(spools, backend).filter(
+    (s) =>
+      !s.archived &&
+      spoolBindings(s).some(
+        (b) => b.deviceId === deviceId && Number.isFinite(Number(b.slotId)) && Number(b.slotId) >= 0
+      )
+  )
 }
 
 export function onStatusBatchForAmsDeduct(

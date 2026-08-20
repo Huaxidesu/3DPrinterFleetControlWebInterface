@@ -45,4 +45,4 @@ docker compose up -d --build
 docker compose -f docker-compose.fnos.yml up -d --build
 ```
 
-更完整的平台说明见仓库根目录 [README.md](../README.md) 第 2 节。
+更完整的平台说明见 [ops/docs/INSTALL.md](../ops/docs/INSTALL.md)（含 Node 直装与 Docker 两种方式）。

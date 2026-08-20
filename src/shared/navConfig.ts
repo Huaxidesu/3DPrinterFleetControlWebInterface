@@ -47,13 +47,10 @@ export const BUILTIN_NAV_DEFAULTS: Array<{
   { target: 'resin', label: '光固化', perm: 'nav.devices' },
   { target: 'filament', label: '耗材管理', perm: 'nav.filament' },
   { target: 'tools', label: '常用工具', perm: 'nav.tools' },
-  { target: 'quoteHistory', label: '报价记录', perm: 'nav.tools', serverOnly: true },
   { target: 'monitorWall', label: '内部监控', perm: 'nav.monitor' },
   { target: 'monitorZones', label: '区域监控', perm: 'nav.monitor' },
   { target: 'models', label: '模型网站' },
   { target: 'aiModels', label: 'AI 建模网' },
-  { target: 'users', label: '用户权限', perm: 'nav.users', serverOnly: true },
-  { target: 'printApprove', label: '打印审核/队列', perm: 'nav.printApprove' },
   { target: 'settings', label: '软件设置', perm: 'nav.settings' }
 ]
 

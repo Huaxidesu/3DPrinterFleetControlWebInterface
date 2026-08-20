@@ -1,0 +1,93 @@
+hanye监控台 — 飞牛 NAS 自启脚本说明
+====================================
+
+本目录文件：
+  start-hanye.sh   启动服务
+  stop-hanye.sh    停止服务
+  update-hanye.sh  网页更新后：npm install + build + 重启
+  自启说明.txt     本文件
+
+项目路径（默认）：
+  /vol2/1000/3d/hanye-printer-monitor-4.0.6
+
+若你的解压路径不同，用文本编辑器改 start-hanye.sh 里的 APP_DIR= 那一行。
+
+------------------------------------
+一、上传脚本到飞牛
+------------------------------------
+
+1. 把 start-hanye.sh、stop-hanye.sh 上传到飞牛，例如：
+   /home/hanye/
+
+2. SSH 登录后赋予执行权限：
+
+   chmod +x /home/hanye/start-hanye.sh
+   chmod +x /home/hanye/stop-hanye.sh
+
+------------------------------------
+二、手动测试启动
+------------------------------------
+
+   export PATH=/var/apps/nodejs_v20/target/bin:$PATH
+   /home/hanye/start-hanye.sh
+
+   curl http://127.0.0.1:17890/api/health
+
+浏览器打开：http://飞牛IP:17890/
+登录 admin / admin123
+
+停止：
+   /home/hanye/stop-hanye.sh
+
+------------------------------------
+二点五、软件设置里更新后（必做）
+------------------------------------
+
+网页：软件设置 → 关于 → 检查更新 → 更新
+（会先下载覆盖源码，保留 data/ 与 .env）
+
+更新完成后 SSH 执行：
+
+   chmod +x /home/hanye/update-hanye.sh
+   /home/hanye/update-hanye.sh
+
+日志：/home/hanye/hanye-update.log
+
+------------------------------------
+三、开机自动启动（root 计划任务）
+------------------------------------
+
+飞牛上普通用户 crontab 开机常不生效，请用 root：
+
+   sudo -i
+   crontab -l 2>/dev/null | grep -v start-hanye; echo "@reboot sleep 60 && su - hanye -c '/home/hanye/start-hanye.sh' >> /home/hanye/hanye-start.log 2>&1" | crontab -
+   crontab -l
+   exit
+
+重启 NAS 后等 2～3 分钟，再访问 http://飞牛IP:17890/
+
+若打不开，查看：
+   cat /home/hanye/hanye-start.log
+   cat /home/hanye/hanye.log
+   pgrep -af nodeServer
+
+------------------------------------
+四、日常命令
+------------------------------------
+
+  启动：  /home/hanye/start-hanye.sh
+  停止：  /home/hanye/stop-hanye.sh
+  日志：  tail -f /home/hanye/hanye.log
+  更新：  软件设置 → 关于 → 更新 后执行 /home/hanye/update-hanye.sh
+          （或手动：npm run build + stop + start）
+
+------------------------------------
+五、Node 路径
+------------------------------------
+
+脚本默认 Node 在：/var/apps/nodejs_v20/target/bin
+
+若应用中心装的是别的版本，SSH 执行：
+   ls /var/apps/ | grep node
+
+把 start-hanye.sh 第一行 PATH 里的 nodejs_v20 改成实际文件夹名。

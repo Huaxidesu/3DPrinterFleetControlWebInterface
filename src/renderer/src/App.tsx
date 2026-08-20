@@ -78,20 +78,11 @@ const PluginHostPage = lazy(() =>
 const ToolsPage = lazy(() =>
   import('./components/ToolsPage').then((m) => ({ default: m.ToolsPage }))
 )
-const QuoteHistoryPage = lazy(() =>
-  import('./components/QuoteHistoryPage').then((m) => ({ default: m.QuoteHistoryPage }))
-)
 const ModelSitesPage = lazy(() =>
   import('./components/ModelSitesPage').then((m) => ({ default: m.ModelSitesPage }))
 )
 const AiModelSitesPage = lazy(() =>
   import('./components/AiModelSitesPage').then((m) => ({ default: m.AiModelSitesPage }))
-)
-const UsersPage = lazy(() =>
-  import('./components/UsersPage').then((m) => ({ default: m.UsersPage }))
-)
-const PrintApprovalPage = lazy(() =>
-  import('./components/PrintApprovalPage').then((m) => ({ default: m.PrintApprovalPage }))
 )
 
 const { Header } = Layout
@@ -174,16 +165,24 @@ export default function App() {
   const filamentSearch = useFilamentStore((s) => s.search)
   const setFilamentSearch = useFilamentStore((s) => s.setSearch)
   const openFilamentAdd = useFilamentStore((s) => s.openAddModal)
-  const isFilament = section === 'filament'
+  const isFilamentPage = section === 'filament'
   const isTools = section === 'tools'
   const isQuoteHistory = section === 'quoteHistory'
   const isMonitorWall = section === 'monitorWall'
   const isMonitorZones = section === 'monitorZones'
   const isModels = section === 'models'
   const isAiModels = section === 'aiModels'
-  const isSettings = section === 'settings'
   const isUsers = section === 'users'
   const isPrintApprove = section === 'printApprove'
+  const softSettingsInitialTab = isQuoteHistory
+    ? 'quoteHistory'
+    : isUsers
+      ? 'users'
+      : isPrintApprove
+        ? 'printApprove'
+        : undefined
+  const isSettings =
+    section === 'settings' || isQuoteHistory || isUsers || isPrintApprove
   const isPluginPage = typeof section === 'string' && section.startsWith('plugin:')
   const isCustomPage = typeof section === 'string' && section.startsWith('page:')
   const toolsVisitedRef = useRef(false)
@@ -198,7 +197,7 @@ export default function App() {
   const navInit = useNavConfigStore((s) => s.init)
 
   const filamentVisibleCount = useFilamentStore((s) =>
-    isFilament
+    isFilamentPage
       ? selectVisibleSpools({
           spools: s.spools,
           tech: s.tech,
@@ -212,7 +211,7 @@ export default function App() {
       : 0
   )
   const filamentActiveCount = useFilamentStore((s) =>
-    isFilament ? s.spools.filter((x) => !x.archived).length : 0
+    isFilamentPage ? s.spools.filter((x) => !x.archived).length : 0
   )
 
   const authReady = useAuthStore((s) => s.ready)
@@ -357,8 +356,8 @@ export default function App() {
   // Entering non-device pages: one-shot pull (mutate/save already updates; no deviceRefreshSec loop)
   useEffect(() => {
     if (!isRemoteDataMode() || !authed) return
-    if (section === 'filament') {
-      void useFilamentStore.getState().refreshFromServer({ silent: true }).catch(() => undefined)
+    if (section === 'filament' || section === 'tools') {
+      void useFilamentStore.getState().refreshForLinking().catch(() => undefined)
     } else if (section === 'monitorWall' || section === 'monitorZones') {
       void useMonitorStore.getState().refreshFromServer({ silent: true }).catch(() => undefined)
     } else if (section === 'settings') {
@@ -668,7 +667,7 @@ export default function App() {
                     className="app-header-search"
                   />
                 ) : null}
-                {!isMobile && isFilament ? (
+                {!isMobile && isFilamentPage ? (
                   <Input.Search
                     placeholder="搜索颜色 / 品牌 / 位置 / 备注"
                     allowClear
@@ -705,7 +704,7 @@ export default function App() {
                     {isMobile ? null : printerTech === 'resin' ? '添加光固化' : '添加 FDM'}
                   </Button>
                 ) : null}
-                {isFilament && can('filament.create') ? (
+                {isFilamentPage && can('filament.create') ? (
                   <Button
                     type="primary"
                     icon={<PlusOutlined />}
@@ -748,7 +747,7 @@ export default function App() {
           </>
         )
   const shellMobileToolbar = (
-          isMobile && (printerTech || isFilament) ? (
+          isMobile && (printerTech || isFilamentPage) ? (
             <div className="app-mobile-toolbar">
               {printerTech ? (
                 <Input.Search
@@ -758,7 +757,7 @@ export default function App() {
                   onChange={(e) => setSearch(e.target.value)}
                 />
               ) : null}
-              {isFilament ? (
+              {isFilamentPage ? (
                 <Input.Search
                   placeholder="搜索耗材…"
                   allowClear
@@ -806,21 +805,13 @@ export default function App() {
                     <PluginSlot name="tools.page.after" />
                   </div>
                 ) : null}
-                {isTools ? null : isFilament ? (
+                {isTools ? null : isFilamentPage ? (
                   <>
                     <PluginSlot name="filament.page.before" />
                     <PluginSlot name="filament.page" replace>
                       <FilamentManager />
                     </PluginSlot>
                     <PluginSlot name="filament.page.after" />
-                  </>
-                ) : isQuoteHistory ? (
-                  <>
-                    <PluginSlot name="quote.history.before" />
-                    <PluginSlot name="quote.history" replace>
-                      <QuoteHistoryPage />
-                    </PluginSlot>
-                    <PluginSlot name="quote.history.after" />
                   </>
                 ) : isMonitorWall ? (
                   <>
@@ -854,22 +845,6 @@ export default function App() {
                     </PluginSlot>
                     <PluginSlot name="aiModels.page.after" />
                   </>
-                ) : isUsers ? (
-                  <>
-                    <PluginSlot name="users.page.before" />
-                    <PluginSlot name="users.page" replace>
-                      <UsersPage />
-                    </PluginSlot>
-                    <PluginSlot name="users.page.after" />
-                  </>
-                ) : isPrintApprove ? (
-                  <>
-                    <PluginSlot name="print.approve.before" />
-                    <PluginSlot name="print.approve" replace>
-                      <PrintApprovalPage />
-                    </PluginSlot>
-                    <PluginSlot name="print.approve.after" />
-                  </>
                 ) : isPluginPage && pluginPageId ? (
                   <PluginHostPage identifier={pluginPageId} moduleName={pluginPageModule} />
                 ) : isCustomPage ? (
@@ -878,7 +853,7 @@ export default function App() {
                   <>
                     <PluginSlot name="settings.page.before" />
                     <PluginSlot name="settings.page" replace>
-                      <SoftSettingsPage />
+                      <SoftSettingsPage initialTab={softSettingsInitialTab} />
                     </PluginSlot>
                     <PluginSlot name="settings.page.after" />
                   </>
@@ -897,21 +872,19 @@ export default function App() {
                   ? `FDM ${sectionCount} · 可见 ${visible.length}`
                   : printerTech === 'resin'
                     ? `光固化 ${sectionCount} · 可见 ${visible.length}`
-                    : isFilament
+                    : isFilamentPage
                       ? `耗材 ${filamentActiveCount} · 可见 ${filamentVisibleCount}`
                       : isTools
                         ? '常用工具'
-                        : isQuoteHistory
-                          ? '报价记录'
-                          : isMonitorWall
-                            ? '内部监控 · 打印机摄像头墙'
-                            : isMonitorZones
-                              ? '区域监控 · 第三方摄像头'
-                              : isModels
-                                ? '模型网站'
-                                : isAiModels
-                                  ? 'AI 建模网'
-                                  : '软件设置'}
+                        : isMonitorWall
+                          ? '内部监控 · 打印机摄像头墙'
+                          : isMonitorZones
+                            ? '区域监控 · 第三方摄像头'
+                            : isModels
+                              ? '模型网站'
+                              : isAiModels
+                                ? 'AI 建模网'
+                                : '软件设置'}
                 {' · v'}
                 {typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.4.1'}
               </span>
@@ -920,13 +893,11 @@ export default function App() {
                   ? siteFooter.trim()
                   : isTools
                     ? '代打报价 · 材料电费折旧人工 · G-code'
-                    : isQuoteHistory
-                      ? '全部用户 · 复制/导出 · 时间价格可搜'
-                      : isMonitorWall
-                        ? '机舱摄像头 · 逐台加载 · 离开即停流'
-                        : isMonitorZones
-                          ? '分区管理 · HTTP/MJPEG · 离开即停流'
-                          : isModels
+                    : isMonitorWall
+                      ? '机舱摄像头 · 逐台加载 · 离开即停流'
+                      : isMonitorZones
+                        ? '分区管理 · HTTP/MJPEG · 离开即停流'
+                        : isModels
                             ? '厂家库 · 综合站 · 国外模型平台'
                             : isAiModels
                               ? '文生3D · 图生3D · 扫描重建'
@@ -985,7 +956,7 @@ export default function App() {
                     className="app-header-search"
                   />
                 ) : null}
-                {!isMobile && isFilament ? (
+                {!isMobile && isFilamentPage ? (
                   <Input.Search
                     placeholder="搜索颜色 / 品牌 / 位置 / 备注"
                     allowClear
@@ -1009,7 +980,7 @@ export default function App() {
                     {isMobile ? null : printerTech === 'resin' ? '添加光固化' : '添加 FDM'}
                   </Button>
                 ) : null}
-                {isFilament && can('filament.create') ? (
+                {isFilamentPage && can('filament.create') ? (
                   <Button type="primary" icon={<PlusOutlined />} onClick={() => openFilamentAdd()} aria-label="添加料卷">
                     {isMobile ? null : '添加料卷'}
                   </Button>
