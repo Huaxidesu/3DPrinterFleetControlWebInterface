@@ -314,7 +314,6 @@ const DeviceCard = memo(function DeviceCard({
           <span className={`tech-chip ${resin ? 'resin' : 'fdm'}`}>{resin ? '光固化' : 'FDM'}</span>
         </div>
         <div className="device-card-head-end">
-          {!resin ? <CardColorDots colors={filamentColors} /> : null}
           <span className={`brand-chip ${BRAND_CLASS[device.brand] || 'brand-bambu'}`}>
             {brandLabel(device.brand)}
           </span>
@@ -499,8 +498,11 @@ const DeviceCard = memo(function DeviceCard({
           {statusText}
         </span>
         {!resin ? (
-          <span className={`device-card-footer-filament${filamentBoundCount > 0 ? ' on' : ''}`}>
-            {filamentBoundCount > 0 ? `耗材已绑 ${filamentBoundCount}` : '耗材未绑'}
+          <span className="device-card-footer-end">
+            <CardColorDots colors={filamentColors} />
+            <span className={`device-card-footer-filament${filamentBoundCount > 0 ? ' on' : ''}`}>
+              {filamentBoundCount > 0 ? `耗材已绑 ${filamentBoundCount}` : '耗材未绑'}
+            </span>
           </span>
         ) : null}
       </div>

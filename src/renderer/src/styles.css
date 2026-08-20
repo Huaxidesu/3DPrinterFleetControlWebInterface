@@ -592,6 +592,19 @@ html.nav-rail-collapsed .app-shell-layout-workspace .app-rail {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.device-card-footer-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.device-card-footer-end .card-color-dots {
+  max-width: 140px;
+  justify-content: flex-end;
+}
+
 .device-card-footer-filament.on {
   color: #b7eb8f;
   background: rgba(82, 196, 26, 0.12);
