@@ -236,7 +236,7 @@ export function usePeriodicUpdateCheck(enabled: boolean) {
         if (!cancelled) {
           localStorage.setItem(LS_LAST, String(Date.now()))
           message.warning({
-            content: '检查不到更新：请确认运行监控台的服务器能访问 github.com',
+            content: '检查不到更新：请确认运行监控台的服务器能访问所选更新平台',
             key: 'hanye-update-unreachable',
             duration: 8
           })
