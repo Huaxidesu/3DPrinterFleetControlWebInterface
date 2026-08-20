@@ -8,7 +8,7 @@ hanye监控台 — 飞牛 NAS 自启脚本说明
   自启说明.txt     本文件
 
 项目路径（默认）：
-  /vol2/1000/3d/hanye-printer-monitor-4.0.6
+  /vol2/1000/3d/hanye-printer-monitor-4.0.7
 
 若你的解压路径不同，用文本编辑器改 start-hanye.sh 里的 APP_DIR= 那一行。
 

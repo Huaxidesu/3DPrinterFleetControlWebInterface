@@ -133,7 +133,7 @@ pm2 startup
 
 #### 2. 上传并解压源码
 
-例如：`/vol2/1000/3d/hanye-printer-monitor-4.0.6`
+例如：`/vol2/1000/3d/hanye-printer-monitor-4.0.7`
 
 #### 3. SSH 构建
 
@@ -148,7 +148,7 @@ echo 'export PATH=/var/apps/nodejs_v20/target/bin:$PATH' >> ~/.bashrc
 然后：
 
 ```bash
-cd /vol2/1000/3d/hanye-printer-monitor-4.0.6
+cd /vol2/1000/3d/hanye-printer-monitor-4.0.7
 npm install
 npm run build
 mkdir -p data
