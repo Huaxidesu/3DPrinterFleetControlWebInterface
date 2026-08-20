@@ -164,7 +164,9 @@ DATA_ROOT=./data
 LAN_SCAN_SUBNETS=192.168.10
 ```
 
-#### 4. 启动脚本（仓库 `NAS上传/` 目录，上传到 NAS）
+#### 4. 启动脚本（仓库 [`node.js20/`](../../node.js20/) 目录）
+
+面向飞牛等 **Node.js 20 直装** 环境：启停、开机自启、网页更新后的 rebuild。说明见 [`node.js20/README.md`](../../node.js20/README.md) 与同目录 `自启说明.txt`。
 
 | 脚本 | 作用 |
 |------|------|

@@ -84,6 +84,7 @@ Docker 一键脚本仍在 **[`docker/`](docker/)**（`install.bat` / `install.sh
 ├── data/                # 运行时数据（勿提交）
 ├── dist/                # 构建产物
 ├── docker/              # Docker 安装（一键脚本 / compose / Dockerfile）
+├── node.js20/           # 飞牛 NAS Node 20 直装：启停 / 自启 / 更新后 rebuild（见该目录 README）
 ├── package.json
 └── README.md
 ```
@@ -111,6 +112,7 @@ Docker 一键脚本仍在 **[`docker/`](docker/)**（`install.bat` / `install.sh
 | 文档 | 内容 |
 |------|------|
 | [INSTALL.md](ops/docs/INSTALL.md) | **安装指南（Win / Mac / Linux / NAS，Node + Docker）** |
+| [node.js20/README.md](node.js20/README.md) | 飞牛 NAS Node 20 启停 / 自启 / 更新后重建脚本 |
 | [NODE_DEPLOY.md](ops/docs/NODE_DEPLOY.md) | 无 Docker 的 Node 部署 |
 | [MYSQL.md](ops/docs/MYSQL.md) | MySQL |
 | [BAOTA.md](ops/docs/BAOTA.md) | 宝塔 |
