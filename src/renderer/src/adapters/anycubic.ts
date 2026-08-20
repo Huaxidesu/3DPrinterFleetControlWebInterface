@@ -103,7 +103,7 @@ export class AnycubicAdapter implements PrinterAdapter {
   }
 
   async uploadFile(_file: File): Promise<void> {
-    throw new Error('纵维立方文件上传后续版本再接入')
+    throw new Error('纵维立方暂不支持监控台传文件；云端请用官方 App，或改局域网后视固件能力接入')
   }
 
   async downloadFile(_remotePath: string): Promise<ArrayBuffer> {
@@ -111,7 +111,7 @@ export class AnycubicAdapter implements PrinterAdapter {
   }
 
   async printFile(_remotePath: string): Promise<void> {
-    throw new Error('纵维立方远程开打后续版本再接入')
+    throw new Error('纵维立方暂不支持监控台远程开打')
   }
 
   async getCameras() {

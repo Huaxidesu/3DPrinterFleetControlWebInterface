@@ -17,11 +17,14 @@ import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import type { CameraSource } from '../../adapters/base'
 import { isClientMode } from '../../api/serverClient'
 import { useMonitorStore } from '../../stores/monitorStore'
+import { useDeviceStore } from '../../stores/deviceStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import type { ZoneCamera } from '../../types/monitor'
 import { PluginSlot } from '../../plugins/PluginSlot'
 import { getHanyePlugin } from '../../plugins/runtime'
 import { newId } from '../../utils/id'
 import { SnapshotCam } from './SnapshotCam'
+import { setSnapshotConcurrency } from './snapshotScheduler'
 import {
   MonitorCameraPluginFields,
   MonitorCameraSourceForm,
@@ -75,6 +78,20 @@ export function MonitorZonesPage() {
   const removeZone = useMonitorStore((s) => s.removeZone)
   const addCamera = useMonitorStore((s) => s.addCamera)
   const removeCamera = useMonitorStore((s) => s.removeCamera)
+  const devices = useDeviceStore((s) => s.devices)
+  const deviceOptions = useMemo(
+    () =>
+      devices.map((d) => ({
+        value: d.id,
+        label: `${d.name || d.id}${d.brand ? ` · ${d.brand}` : ''}`
+      })),
+    [devices]
+  )
+
+  const snapConcurrency = useSettingsStore((s) => s.settings.monitorSnapshotConcurrency)
+  useEffect(() => {
+    setSnapshotConcurrency(snapConcurrency || 6)
+  }, [snapConcurrency])
 
   const [zoneModal, setZoneModal] = useState<'add' | 'rename' | null>(null)
   const [camModal, setCamModal] = useState(false)
@@ -432,6 +449,10 @@ export function MonitorZonesPage() {
                     typeof v.snapshotUrl === 'string'
                       ? v.snapshotUrl.trim() || undefined
                       : undefined,
+                  deviceId:
+                    typeof v.deviceId === 'string' && v.deviceId.trim()
+                      ? v.deviceId.trim()
+                      : undefined,
                   sourceType: 'http'
                 }
               }
@@ -448,11 +469,19 @@ export function MonitorZonesPage() {
               (name) => camForm.getFieldValue(name),
               payload
             )
+            const boundDevice = camForm.getFieldValue('deviceId')
+            if (typeof boundDevice === 'string' && boundDevice.trim()) {
+              payload.deviceId = boundDevice.trim()
+            }
             const cam = await addCamera(active.id, {
               name: String(payload.name || '').trim() || '摄像头',
               url: String(payload.url || ''),
               snapshotUrl:
                 payload.snapshotUrl != null ? String(payload.snapshotUrl) : undefined,
+              deviceId:
+                typeof payload.deviceId === 'string' && payload.deviceId.trim()
+                  ? payload.deviceId.trim()
+                  : undefined,
               sourceType:
                 payload.sourceType != null ? String(payload.sourceType) : camSourceType,
               pluginData:
@@ -517,6 +546,19 @@ export function MonitorZonesPage() {
             rules={[{ required: true, message: '请输入名称' }]}
           >
             <Input placeholder="门口摄像头" />
+          </Form.Item>
+          <Form.Item
+            name="deviceId"
+            label="绑定设备（权限）"
+            extra="绑定后，仅对该设备有「查看」权限的用户能看到本区域相关摄像头；不绑定则仅管理员可见"
+          >
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="可选：关联一台打印机"
+              options={deviceOptions}
+            />
           </Form.Item>
           {!hideUrlFields ? (
             <>

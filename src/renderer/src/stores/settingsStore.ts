@@ -87,6 +87,8 @@ export type AppSettings = {
   aiVision: AiVisionSettings
   /** 异常对接 */
   alertNotify: AlertNotifySettings
+  /** 监控墙快照全局并发 1–32 */
+  monitorSnapshotConcurrency: number
 }
 
 export function normalizeDeviceRefreshSec(v: unknown): number {
@@ -183,7 +185,8 @@ const defaults: AppSettings = {
   siteFooter: '',
   sso: defaultSsoSettings(),
   aiVision: defaultAiVisionSettings(),
-  alertNotify: defaultAlertNotifySettings()
+  alertNotify: defaultAlertNotifySettings(),
+  monitorSnapshotConcurrency: 6
 }
 
 function normalizeUiTheme(v: unknown): UiThemeId {
@@ -360,6 +363,11 @@ function mapSettings(raw: Record<string, unknown> | Partial<AppSettings> | null 
     notifyOnLowFilament: r.notifyOnLowFilament !== false,
     amsAutoDeduct: r.amsAutoDeduct !== false,
     deviceRefreshSec: normalizeDeviceRefreshSec(r.deviceRefreshSec),
+    monitorSnapshotConcurrency: (() => {
+      const n = Math.round(Number(r.monitorSnapshotConcurrency))
+      if (!Number.isFinite(n)) return 6
+      return Math.max(1, Math.min(32, n))
+    })(),
     openAtLogin: Boolean(r.openAtLogin),
     minimizeToTray: r.minimizeToTray !== false,
     webhookEnabled: Boolean(r.webhookEnabled),
@@ -525,6 +533,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         notifyOnLowFilament: next.notifyOnLowFilament,
         amsAutoDeduct: next.amsAutoDeduct,
         deviceRefreshSec: next.deviceRefreshSec,
+        monitorSnapshotConcurrency: next.monitorSnapshotConcurrency,
         uiTheme: next.uiTheme,
         uiThemePack: next.uiThemePack,
         uiBgMode: next.uiBgMode,
@@ -571,6 +580,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           'notifyOnLowFilament',
           'amsAutoDeduct',
           'deviceRefreshSec',
+          'monitorSnapshotConcurrency',
           'webhookEnabled',
           'webhookUrl',
           'openAtLogin',
@@ -587,6 +597,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           'notifyOnLowFilament',
           'amsAutoDeduct',
           'deviceRefreshSec',
+          'monitorSnapshotConcurrency',
           'webhookEnabled',
           'webhookUrl',
           'openAtLogin',

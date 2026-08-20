@@ -40,6 +40,8 @@ const RESERVED_DEVICE_KEYS = new Set([
   'apiKey',
   'bambuDeviceId',
   'bambuHost',
+  'bambuLanSecretKey',
+  'bambuLanAccessCode',
   'bambuRegion',
   'bambuUserId',
   'anycubicPrinterId',
@@ -79,6 +81,8 @@ export type DeviceRow = {
   secretKey?: string
   bambuDeviceId?: string
   bambuHost?: string
+  /** Secret key for LAN access code when cloud MQTT token is in secretKey */
+  bambuLanSecretKey?: string
   bambuRegion?: string
   bambuUserId?: string
   anycubicPrinterId?: string
@@ -136,6 +140,7 @@ export function createDeviceFromBody(
     secretKey,
     bambuDeviceId: str(body.bambuDeviceId),
     bambuHost: str(body.bambuHost),
+    bambuLanSecretKey: str(body.bambuLanSecretKey),
     bambuRegion: body.bambuRegion === 'global' ? 'global' : body.bambuRegion === 'china' ? 'china' : undefined,
     bambuUserId: str(body.bambuUserId),
     anycubicPrinterId: str(body.anycubicPrinterId),
@@ -154,6 +159,14 @@ export function createDeviceFromBody(
       body.aiVisionEnabled === false ? false : body.aiVisionEnabled === true ? true : undefined
   }
   mergePluginExtras(device, body)
+  delete device.bambuLanAccessCode
+  if (device.pluginData && typeof device.pluginData === 'object') {
+    const pd = { ...(device.pluginData as Record<string, unknown>) }
+    if ('bambuLanAccessCode' in pd) {
+      delete pd.bambuLanAccessCode
+      device.pluginData = pd
+    }
+  }
 
   const builtin = BRANDS.has(brand)
   if (builtin && brand === 'bambu' && connectionMode === 'lan' && !device.bambuHost && !device.baseUrl) {
@@ -227,6 +240,7 @@ export function mergeDeviceFromBody(
     secretKey,
     bambuDeviceId: pick('bambuDeviceId', body.bambuDeviceId, prev.bambuDeviceId),
     bambuHost: pick('bambuHost', body.bambuHost, prev.bambuHost),
+    bambuLanSecretKey: pick('bambuLanSecretKey', body.bambuLanSecretKey, prev.bambuLanSecretKey),
     bambuRegion:
       body.bambuRegion === null
         ? undefined
@@ -264,6 +278,15 @@ export function mergeDeviceFromBody(
                 : undefined
   }
   mergePluginExtras(device, body)
+  // Never persist LAN access code in devices.json — use bambuLanSecretKey + secrets store
+  delete device.bambuLanAccessCode
+  if (device.pluginData && typeof device.pluginData === 'object') {
+    const pd = { ...(device.pluginData as Record<string, unknown>) }
+    if ('bambuLanAccessCode' in pd) {
+      delete pd.bambuLanAccessCode
+      device.pluginData = pd
+    }
+  }
 
   return {
     device,
@@ -357,6 +380,7 @@ export const SETTINGS_PATCH_KEYS = [
   'notifyOnLowFilament',
   'amsAutoDeduct',
   'deviceRefreshSec',
+  'monitorSnapshotConcurrency',
   'webhookEnabled',
   'webhookUrl',
   'openAtLogin',

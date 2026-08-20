@@ -114,15 +114,15 @@ export class CrealityAdapter implements PrinterAdapter {
   }
 
   async uploadFile(_file: File): Promise<void> {
-    throw new Error('创想云暂不支持上传')
+    throw new Error('创想云不支持传文件开打；请改用局域网（本机 IP / Moonraker）添加设备')
   }
 
   async downloadFile(_remotePath: string): Promise<ArrayBuffer> {
-    throw new Error('创想云暂不支持下载')
+    throw new Error('创想云不支持下载；请改用局域网添加设备')
   }
 
   async printFile(_remotePath: string): Promise<void> {
-    throw new Error('创想云暂不支持远程开打')
+    throw new Error('创想云不支持远程开打；请改用局域网添加设备')
   }
 
   async getCameras() {

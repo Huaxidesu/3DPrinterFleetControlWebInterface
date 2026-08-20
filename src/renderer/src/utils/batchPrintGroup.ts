@@ -22,8 +22,8 @@ export type BatchPrintGroupCheck =
   | { ok: true; brand: PrinterBrand; modelLabel: string }
   | { ok: false; message: string }
 
-/** Batch import print requires identical brand and model. */
-export function assertSameBrandAndModel(devices: DeviceConfig[]): BatchPrintGroupCheck {
+/** Batch import print requires identical brand (models may differ). */
+export function assertSameBrandBatch(devices: DeviceConfig[]): BatchPrintGroupCheck {
   if (!devices.length) return { ok: false, message: '没有可批量打印的设备' }
   const brands = new Set(devices.map((d) => d.brand))
   if (brands.size !== 1) {
@@ -32,17 +32,12 @@ export function assertSameBrandAndModel(devices: DeviceConfig[]): BatchPrintGrou
       message: `批量导入打印仅允许相同品牌：当前选中 ${brands.size} 种品牌，请只勾选同品牌设备`
     }
   }
-  const models = new Set(devices.map((d) => normalizeDeviceModel(d.model)))
-  if (models.size !== 1) {
-    const sample = devices
-      .slice(0, 6)
-      .map((d) => `${d.name}（${deviceModelLabel(d)}）`)
-      .join('、')
-    return {
-      ok: false,
-      message: `批量导入打印仅允许相同机型：当前机型不一致。示例：${sample}`
-    }
-  }
   const brand = devices[0]!.brand
-  return { ok: true, brand, modelLabel: deviceModelLabel(devices[0]!) }
+  const models = [...new Set(devices.map((d) => deviceModelLabel(d)))]
+  const modelLabel =
+    models.length === 1 ? models[0]! : `${models.slice(0, 3).join(' / ')}${models.length > 3 ? '…' : ''}`
+  return { ok: true, brand, modelLabel }
 }
+
+/** @deprecated use assertSameBrandBatch */
+export const assertSameBrandAndModel = assertSameBrandBatch

@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { IncomingMessage, ServerResponse } from 'http'
 import { readJsonArray, writeJsonArray } from '../storage/jsonBridge'
-import { canDeviceAction } from '../../shared/permissions'
+import { canDeviceAction, effectivePermissions, hasPerm } from '../../shared/permissions'
 import type { AuthContext } from '../auth/authApi'
 
 export type ZoneCameraRow = {
@@ -10,6 +10,7 @@ export type ZoneCameraRow = {
   url: string
   snapshotUrl?: string
   sourceType?: string
+  deviceId?: string
   pluginData?: Record<string, unknown>
   [key: string]: unknown
 }
@@ -129,6 +130,87 @@ function canViewDeviceCameras(auth: AuthContext | null | undefined, deviceId: st
   if (auth.kind === 'user') return canDeviceAction(auth.user, deviceId, 'view')
   return false
 }
+
+function isAdminAuth(auth: AuthContext | null | undefined): boolean {
+  if (!auth || auth.kind === 'local' || auth.kind === 'apiKey') return true
+  if (auth.kind === 'user') {
+    if (auth.user.level === 'admin') return true
+    return hasPerm(effectivePermissions(auth.user), '*')
+  }
+  return false
+}
+
+/** Device ids bound to a zone (camera.deviceId / pluginData / server-api URL). */
+function zoneBoundDeviceIds(zone: MonitorZoneRow): string[] {
+  const ids = new Set<string>()
+  for (const c of zone.cameras || []) {
+    if (typeof c.deviceId === 'string' && c.deviceId.trim()) ids.add(c.deviceId.trim())
+    const pd = c.pluginData
+    if (pd && typeof pd === 'object') {
+      const d = pd.deviceId
+      if (typeof d === 'string' && d.trim()) ids.add(d.trim())
+    }
+    for (const raw of [c.url, c.snapshotUrl]) {
+      const s = String(raw || '')
+      const m = s.match(/\/api\/v1\/devices\/([^/?#]+)/)
+      if (m?.[1]) {
+        try {
+          ids.add(decodeURIComponent(m[1]))
+        } catch {
+          ids.add(m[1])
+        }
+      }
+    }
+  }
+  return Array.from(ids)
+}
+
+/**
+ * Zones bound to devices: visible if user can view any bound device.
+ * Unbound zones (no device ids): admin only — avoid ACL bypass via raw URL cams.
+ */
+function canViewZone(auth: AuthContext | null | undefined, zone: MonitorZoneRow): boolean {
+  if (!auth || auth.kind === 'apiKey' || auth.kind === 'local') return true
+  if (isAdminAuth(auth)) return true
+  if (auth.kind !== 'user') return false
+  const ids = zoneBoundDeviceIds(zone)
+  if (!ids.length) return false
+  return ids.some((id) => canDeviceAction(auth.user, id, 'view'))
+}
+
+const SNAP_CONCURRENCY_DEFAULT = 6
+let snapConcurrency = SNAP_CONCURRENCY_DEFAULT
+let snapInflight = 0
+const snapWaiters: Array<() => void> = []
+
+export function setMonitorSnapshotConcurrency(n: number): void {
+  snapConcurrency = Math.max(1, Math.min(32, Math.floor(Number(n)) || SNAP_CONCURRENCY_DEFAULT))
+}
+
+async function withSnapshotSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (snapInflight >= snapConcurrency) {
+    await new Promise<void>((resolve) => {
+      snapWaiters.push(resolve)
+    })
+  }
+  snapInflight += 1
+  try {
+    return await fn()
+  } finally {
+    snapInflight -= 1
+    const next = snapWaiters.shift()
+    if (next) next()
+  }
+}
+
+async function takeSnapshotLimited(
+  deps: MonitorApiDeps,
+  url: string,
+  apiKey?: string
+): Promise<SnapshotResult> {
+  return withSnapshotSlot(() => deps.takeSnapshot(url, apiKey))
+}
+
 function readZones(path: string): MonitorZoneRow[] {
   const raw = readJsonArray(path)
   return raw.filter(
@@ -225,6 +307,12 @@ function normalizeCameraInput(
       url,
       snapshotUrl,
       sourceType: isPluginSource ? sourceType : sourceType === 'http' ? 'http' : sourceType,
+      deviceId: (() => {
+        const raw = body.deviceId ?? prev?.deviceId
+        if (raw == null || raw === '') return undefined
+        const s = String(raw).trim()
+        return s || undefined
+      })(),
       ...extras
     }
   }
@@ -271,7 +359,7 @@ async function resolveZoneCameraSnapshot(
         return { ok: false, message: hooked.message || 'Plugin snapshot failed' }
       }
       if (hooked && typeof hooked.url === 'string' && hooked.url.trim()) {
-        return deps.takeSnapshot(hooked.url.trim())
+        return takeSnapshotLimited(deps, hooked.url.trim())
       }
     }
   } catch {
@@ -285,7 +373,7 @@ async function resolveZoneCameraSnapshot(
         '该摄像头未提供可拉取的 URL；请在插件 main.js 实现 monitor_camera_snapshot 返回画面'
     }
   }
-  return deps.takeSnapshot(target)
+  return takeSnapshotLimited(deps, target)
 }
 
 /**
@@ -369,13 +457,13 @@ export async function handleMonitorApi(opts: {
     }
     const target = cam.snapshotUrl || cam.streamUrl
     const apiKey = deps.getDeviceApiKey(deviceId) || undefined
-    let shot = await deps.takeSnapshot(target, apiKey)
+    let shot = await takeSnapshotLimited(deps, target, apiKey)
     if (!shot.ok && deps.listDeviceCameraProbeUrls && !String(cameraId).startsWith('extra:')) {
       try {
         const probes = await deps.listDeviceCameraProbeUrls(deviceId, cameraId)
         for (const u of probes) {
           if (!u || u === target) continue
-          shot = await deps.takeSnapshot(u, apiKey)
+          shot = await takeSnapshotLimited(deps, u, apiKey)
           if (shot.ok) break
         }
       } catch {
@@ -388,7 +476,7 @@ export async function handleMonitorApi(opts: {
 
   // —— 区域监控 ——
   if (method === 'GET' && path === '/api/v1/monitor/zones') {
-    let zones = readZones(deps.getMonitorZonesPath())
+    let zones = readZones(deps.getMonitorZonesPath()).filter((z) => canViewZone(auth, z))
     try {
       const pm = deps.getPluginManager?.()
       if (pm) {
@@ -397,7 +485,9 @@ export async function handleMonitorApi(opts: {
           { zones },
           { method, path, url, auth }
         )) as { zones?: MonitorZoneRow[] }
-        if (hooked?.zones && Array.isArray(hooked.zones)) zones = hooked.zones
+        if (hooked?.zones && Array.isArray(hooked.zones)) {
+          zones = hooked.zones.filter((z) => canViewZone(auth, z))
+        }
       }
     } catch {
       /* ignore */
@@ -765,6 +855,10 @@ export async function handleMonitorApi(opts: {
       sendJson(res, 404, { ok: false, message: 'Zone not found' })
       return true
     }
+    if (!canViewZone(auth, zone)) {
+      sendJson(res, 403, { ok: false, message: '无该区域摄像头权限' })
+      return true
+    }
     const cam = zone.cameras.find((c) => c.id === cameraId)
     if (!cam) {
       sendJson(res, 404, { ok: false, message: 'Camera not found' })
@@ -805,7 +899,7 @@ export async function handleMonitorApi(opts: {
       return true
     }
     const apiKey = typeof body.apiKey === 'string' ? body.apiKey : undefined
-    const shot = await deps.takeSnapshot(target, apiKey)
+    const shot = await takeSnapshotLimited(deps, target, apiKey)
     if (!shot.ok) {
       sendJson(res, 502, { ok: false, message: shot.message })
       return true

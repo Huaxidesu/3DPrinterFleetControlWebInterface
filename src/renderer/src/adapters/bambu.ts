@@ -119,15 +119,23 @@ export class BambuAdapter implements PrinterAdapter {
   }
 
   async listFiles(): Promise<PrinterFileInfo[]> {
-    return []
+    const { serverListDeviceFiles } = await import('../api/serverClient')
+    const files = await serverListDeviceFiles(this.deviceId)
+    return files.map((f) => ({
+      path: f.path,
+      size: f.size,
+      modified: f.modified
+    }))
   }
 
-  async uploadFile(_file: File): Promise<void> {
-    throw new Error('Bambu 文件上传请使用 Bambu Studio / Handy，后续版本再接入')
+  async uploadFile(file: File): Promise<void> {
+    const { serverUploadDeviceFile } = await import('../api/serverClient')
+    await serverUploadDeviceFile(this.deviceId, file)
   }
 
-  async downloadFile(_remotePath: string): Promise<ArrayBuffer> {
-    throw new Error('Bambu 文件下载暂未接入')
+  async downloadFile(remotePath: string): Promise<ArrayBuffer> {
+    const { serverDownloadDeviceFile } = await import('../api/serverClient')
+    return serverDownloadDeviceFile(this.deviceId, remotePath)
   }
 
   async printFile(remotePath: string): Promise<void> {

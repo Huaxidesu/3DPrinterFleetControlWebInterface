@@ -7,6 +7,8 @@ export type ZoneCamera = {
    */
   url: string
   snapshotUrl?: string
+  /** Bound printer id for ACL (view permission) */
+  deviceId?: string
   /** `http` (default) or plugin-registered source id */
   sourceType?: string
   /** Free-form plugin payload (credentials, channel, cloud device id, …) */

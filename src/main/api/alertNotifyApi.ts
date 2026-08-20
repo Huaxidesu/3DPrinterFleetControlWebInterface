@@ -2,9 +2,26 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import type { AlertEventKind } from '../../shared/alertNotify'
 import { ALERT_EVENT_KINDS, ALERT_EVENT_LABELS } from '../../shared/alertNotify'
 import { dispatchAlertNotify } from '../alert/dispatcher'
+import { getAlertHistory, listAlertHistory, clearAlertHistory } from '../alert/history'
+import type { AuthContext } from '../auth/authApi'
+import { effectivePermissions, hasPerm } from '../../shared/permissions'
 
 type SendJson = (res: ServerResponse, status: number, body: unknown) => void
 type ReadBody = (req: IncomingMessage) => Promise<string>
+
+function requireAdmin(
+  auth: AuthContext | null | undefined,
+  res: ServerResponse,
+  sendJson: SendJson
+): boolean {
+  if (!auth || auth.kind === 'local') return true
+  if (auth.kind === 'user') {
+    if (auth.user.level === 'admin') return true
+    if (hasPerm(effectivePermissions(auth.user), '*')) return true
+  }
+  sendJson(res, 403, { ok: false, message: '仅管理员可查看告警历史' })
+  return false
+}
 
 export async function handleAlertNotifyApi(opts: {
   method: string
@@ -17,8 +34,60 @@ export async function handleAlertNotifyApi(opts: {
   getPluginManager?: () => {
     runHook: (name: string, value: unknown, ctx?: unknown) => Promise<unknown>
   } | null
+  auth?: AuthContext | null
 }): Promise<boolean> {
-  const { method, path, req, res, sendJson, readBody, getSettings, getPluginManager } = opts
+  const { method, path, req, res, sendJson, readBody, getSettings, getPluginManager, auth } = opts
+
+  if (method === 'GET' && path === '/api/v1/alert-notify/history') {
+    if (!requireAdmin(auth, res, sendJson)) return true
+    const limit = Number(new URL(req.url || '', 'http://local').searchParams.get('limit') || 80)
+    sendJson(res, 200, { ok: true, entries: listAlertHistory(limit) })
+    return true
+  }
+
+  if (method === 'DELETE' && path === '/api/v1/alert-notify/history') {
+    if (!requireAdmin(auth, res, sendJson)) return true
+    clearAlertHistory()
+    sendJson(res, 200, { ok: true })
+    return true
+  }
+
+  const retryMatch = path.match(/^\/api\/v1\/alert-notify\/history\/([^/]+)\/retry$/)
+  if (method === 'POST' && retryMatch) {
+    if (!requireAdmin(auth, res, sendJson)) return true
+    const id = decodeURIComponent(retryMatch[1]!)
+    const entry = getAlertHistory(id)
+    if (!entry) {
+      sendJson(res, 404, { ok: false, message: '记录不存在' })
+      return true
+    }
+    const failedChannels = entry.results.filter((r) => !r.ok).map((r) => r.channel)
+    const result = await dispatchAlertNotify(
+      () => getSettings() as never,
+      {
+        kind: entry.kind as AlertEventKind,
+        title: entry.title,
+        content: entry.content,
+        deviceId: entry.deviceId,
+        deviceName: entry.deviceName,
+        at: new Date().toISOString()
+      },
+      {
+        bypassCooldown: true,
+        bypassEventGate: true,
+        bypassDeviceFilter: true,
+        channels: failedChannels.length ? failedChannels : undefined,
+        historyId: id,
+        getPluginManager
+      }
+    )
+    sendJson(res, 200, {
+      ok: result.ok,
+      results: result.results,
+      entry: getAlertHistory(id)
+    })
+    return true
+  }
 
   if (method === 'POST' && path === '/api/v1/alert-notify/test') {
     const raw = await readBody(req)

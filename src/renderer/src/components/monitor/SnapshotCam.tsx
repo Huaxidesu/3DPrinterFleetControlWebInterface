@@ -2,6 +2,14 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Switch, Typography } from 'antd'
 import type { CameraSource } from '../../adapters/base'
 import { isClientMode, serverGet, serverSend } from '../../api/serverClient'
+import {
+  noteSnapshotFailure,
+  noteSnapshotSuccess,
+  scheduleSnapshot
+} from './snapshotScheduler'
+
+const OFFLINE_EMIT_COOLDOWN_MS = 10 * 60 * 1000
+const lastOfflineEmitAt = new Map<string, number>()
 
 function remoteOf(c: CameraSource): string {
   return c.remoteSnapshotUrl || c.remoteStreamUrl || c.snapshotUrl || c.streamUrl || ''
@@ -19,7 +27,10 @@ export function SnapshotCam({
   onAiEnabledChange,
   aiToggleDisabled,
   headerExtra,
-  footerExtra
+  footerExtra,
+  /** Optional device id for monitorOffline alerts */
+  alertDeviceId,
+  alertDeviceName
 }: {
   cameras: CameraSource[]
   title: string
@@ -37,6 +48,8 @@ export function SnapshotCam({
   headerExtra?: ReactNode
   /** Plugin / host content under the frame */
   footerExtra?: ReactNode
+  alertDeviceId?: string
+  alertDeviceName?: string
 }) {
   const [imgSrc, setImgSrc] = useState('')
   const [phase, setPhase] = useState<'boot' | 'live' | 'fail'>('boot')
@@ -49,17 +62,23 @@ export function SnapshotCam({
   const lastSrcRef = useRef('')
   const pullBusy = useRef(false)
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const offlineEmitted = useRef(false)
+  const lastErrRef = useRef('')
 
   const camKey = useMemo(
     () => cameras.map((c) => `${c.id}|${remoteOf(c)}`).join(';'),
     [cameras]
+  )
+  const schedKey = useMemo(
+    () => `snap:${alertDeviceId || title}:${camKey.slice(0, 120)}`,
+    [alertDeviceId, title, camKey]
   )
 
   useEffect(() => {
     idxRef.current = 0
     failRef.current = 0
     aliveRef.current = false
-    // Keep last frame while reconnecting — clearing causes visible flash
+    offlineEmitted.current = false
     setPhase((p) => (lastSrcRef.current ? 'live' : 'boot'))
     setErr('')
     if (timer.current) {
@@ -68,7 +87,7 @@ export function SnapshotCam({
     }
     if (!active || !cameras.length) return
 
-    const pull = async () => {
+    const pullOnce = async () => {
       if (pullBusy.current) return
       const list = camsRef.current
       if (!list.length) return
@@ -81,69 +100,110 @@ export function SnapshotCam({
       }
       pullBusy.current = true
       try {
-        if (remote.startsWith('server-api:')) {
-          const path = remote.slice('server-api:'.length)
-          const data = await serverGet<{
-            ok?: boolean
-            contentType?: string
-            base64?: string
-            message?: string
-          }>(path)
-          if (data.base64) {
-            failRef.current = 0
-            aliveRef.current = true
-            setPhase('live')
-            setErr('')
-            const next = `data:${data.contentType || 'image/jpeg'};base64,${data.base64}`
-            if (next !== lastSrcRef.current) {
-              lastSrcRef.current = next
-              setImgSrc(next)
+        await scheduleSnapshot(schedKey, async () => {
+          let ok = false
+          try {
+            if (remote.startsWith('server-api:')) {
+              const path = remote.slice('server-api:'.length)
+              const data = await serverGet<{
+                ok?: boolean
+                contentType?: string
+                base64?: string
+                message?: string
+              }>(path)
+              if (data.base64) {
+                ok = true
+                failRef.current = 0
+                aliveRef.current = true
+                offlineEmitted.current = false
+                noteSnapshotSuccess(schedKey)
+                setPhase('live')
+                setErr('')
+                const next = `data:${data.contentType || 'image/jpeg'};base64,${data.base64}`
+                if (next !== lastSrcRef.current) {
+                  lastSrcRef.current = next
+                  setImgSrc(next)
+                }
+                return
+              }
+              if (data.message) {
+                lastErrRef.current = data.message
+                setErr(data.message)
+              }
+            } else if (isClientMode()) {
+              const data = await serverSend<{
+                ok?: boolean
+                contentType?: string
+                base64?: string
+                message?: string
+              }>('/api/v1/camera/snapshot', 'POST', { url: remote })
+              if (data.base64) {
+                ok = true
+                failRef.current = 0
+                aliveRef.current = true
+                offlineEmitted.current = false
+                noteSnapshotSuccess(schedKey)
+                setPhase('live')
+                setErr('')
+                const next = `data:${data.contentType || 'image/jpeg'};base64,${data.base64}`
+                if (next !== lastSrcRef.current) {
+                  lastSrcRef.current = next
+                  setImgSrc(next)
+                }
+                return
+              }
+              if (data.message) {
+                lastErrRef.current = data.message
+                setErr(data.message)
+              }
+            } else {
+              lastErrRef.current = '请通过网页服务访问摄像头'
+              setErr('请通过网页服务访问摄像头')
             }
-            return
-          }
-          if (data.message) setErr(data.message)
-        } else if (isClientMode()) {
-          const data = await serverSend<{
-            ok?: boolean
-            contentType?: string
-            base64?: string
-            message?: string
-          }>('/api/v1/camera/snapshot', 'POST', { url: remote })
-          if (data.base64) {
-            failRef.current = 0
-            aliveRef.current = true
-            setPhase('live')
-            setErr('')
-            const next = `data:${data.contentType || 'image/jpeg'};base64,${data.base64}`
-            if (next !== lastSrcRef.current) {
-              lastSrcRef.current = next
-              setImgSrc(next)
+          } finally {
+            if (!ok) {
+              failRef.current += 1
+              noteSnapshotFailure(schedKey, failRef.current)
+              if (failRef.current % 2 === 0) idxRef.current += 1
+              if (!aliveRef.current && failRef.current >= list.length * 3) {
+                setPhase('fail')
+                const emitKey = alertDeviceId || schedKey
+                const now = Date.now()
+                const last = lastOfflineEmitAt.get(emitKey) || 0
+                if (
+                  now - last >= OFFLINE_EMIT_COOLDOWN_MS &&
+                  (isClientMode() || window.electronAPI)
+                ) {
+                  lastOfflineEmitAt.set(emitKey, now)
+                  offlineEmitted.current = true
+                  void serverSend('/api/v1/alert-notify/emit', 'POST', {
+                    kind: 'monitorOffline',
+                    title: `监控离线：${alertDeviceName || title}`,
+                    content: `摄像头持续取帧失败（${lastErrRef.current || '无法取流'}）`,
+                    deviceId: alertDeviceId,
+                    deviceName: alertDeviceName || title
+                  }).catch(() => undefined)
+                }
+              }
             }
-            return
           }
-          if (data.message) setErr(data.message)
-        } else {
-          setErr('请通过网页服务访问摄像头')
-        }
+        })
       } catch {
         /* ignore */
       } finally {
         pullBusy.current = false
       }
-      failRef.current += 1
-      if (failRef.current % 2 === 0) idxRef.current += 1
-      if (!aliveRef.current && failRef.current >= list.length * 3) setPhase('fail')
     }
 
-    void pull()
-    timer.current = setInterval(() => void pull(), intervalMs)
+    void pullOnce()
+    timer.current = setInterval(() => void pullOnce(), intervalMs)
     return () => {
       if (timer.current) {
         clearInterval(timer.current)
         timer.current = null
       }
     }
-  }, [camKey, intervalMs, active, cameras.length])
+  }, [camKey, schedKey, intervalMs, active, cameras.length, alertDeviceId, alertDeviceName, title])
 
   return (
     <div className={`monitor-tile${alertLabel ? ' has-ai-alert' : ''}${aiEnabled === false ? ' ai-off' : ''}`}>

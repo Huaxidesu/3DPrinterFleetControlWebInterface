@@ -7,6 +7,8 @@ import {
   Select,
   Space,
   Switch,
+  Table,
+  Tag,
   Typography,
   message
 } from 'antd'
@@ -21,7 +23,8 @@ import {
   type SmsProviderId
 } from '@shared/alertNotify'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { isClientMode, serverSend } from '../../api/serverClient'
+import { useDeviceStore } from '../../stores/deviceStore'
+import { isClientMode, serverGet, serverSend } from '../../api/serverClient'
 import { PluginSlot } from '../../plugins/PluginSlot'
 
 const SMS_PRESETS: Partial<
@@ -53,17 +56,55 @@ export function SoftSettingsAlerts() {
   const saving = useSettingsStore((s) => s.saving)
   const patchLocal = useSettingsStore((s) => s.patchLocal)
   const save = useSettingsStore((s) => s.save)
+  const devices = useDeviceStore((s) => s.devices)
 
   const [draft, setDraft] = useState<AlertNotifySettings>(() =>
     normalizeAlertNotifySettings(settings.alertNotify)
   )
   const [testing, setTesting] = useState(false)
   const [secretTouched, setSecretTouched] = useState<Record<string, boolean>>({})
+  const [history, setHistory] = useState<
+    Array<{
+      id: string
+      at: string
+      kind: string
+      title: string
+      deviceName?: string
+      ok: boolean
+      status: string
+      attempts: number
+      results: Array<{ channel: string; ok: boolean; message?: string }>
+    }>
+  >([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [retryingId, setRetryingId] = useState<string | null>(null)
 
   useEffect(() => {
     setDraft(normalizeAlertNotifySettings(settings.alertNotify))
     setSecretTouched({})
   }, [settings.alertNotify])
+
+  const loadHistory = async () => {
+    if (!isClientMode() && !window.electronAPI) return
+    setHistoryLoading(true)
+    try {
+      const data = await serverGet<{ entries?: typeof history }>('/api/v1/alert-notify/history?limit=80')
+      setHistory(Array.isArray(data.entries) ? data.entries : [])
+    } catch {
+      /* ignore — may lack admin */
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadHistory()
+  }, [])
+
+  const deviceOptions = useMemo(
+    () => devices.map((d) => ({ value: d.id, label: d.name || d.id })),
+    [devices]
+  )
 
   const pub = settings.alertNotify as
     | {
@@ -122,6 +163,7 @@ export function SoftSettingsAlerts() {
     patchLocal({ alertNotify: next })
     await save({ alertNotify: next })
     message.success('异常对接已保存')
+    await loadHistory()
   }
 
   const onTest = async () => {
@@ -151,6 +193,7 @@ export function SoftSettingsAlerts() {
           .join('；')
         message.error(detail || data.reason || '测试失败')
       }
+      await loadHistory()
     } catch (e) {
       message.error(e instanceof Error ? e.message : String(e))
     } finally {
@@ -213,9 +256,168 @@ export function SoftSettingsAlerts() {
             <Switch checked={d.events[kind]} onChange={(v) => setEvent(kind, v)} />
           </div>
         ))}
+
+        <Typography.Title level={5} style={{ marginTop: 16 }}>
+          设备订阅
+        </Typography.Title>
+        <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+          默认全部设备；可改为仅通知名单内设备，或排除名单内设备。无设备 ID 的系统级告警不受此限制。
+        </Typography.Paragraph>
+        <div className="settings-row" style={{ marginBottom: 8 }}>
+          <Typography.Text strong>范围</Typography.Text>
+          <Select
+            style={{ minWidth: 200 }}
+            value={d.deviceMode}
+            options={[
+              { value: 'all', label: '全部设备' },
+              { value: 'include', label: '仅名单内' },
+              { value: 'exclude', label: '排除名单' }
+            ]}
+            onChange={(v) => patchDraft({ deviceMode: v })}
+          />
+        </div>
+        {d.deviceMode !== 'all' ? (
+          <Select
+            mode="multiple"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            style={{ width: '100%', marginBottom: 8 }}
+            placeholder="选择设备"
+            options={deviceOptions}
+            value={d.deviceIds}
+            onChange={(ids) => patchDraft({ deviceIds: ids })}
+          />
+        ) : null}
         <PluginSlot name="settings.alerts.fields" />
       </Card>
       <PluginSlot name="settings.alerts.main.after" />
+
+      <Card
+        className="settings-card"
+        title="通知历史"
+        extra={
+          <Space>
+            <Button
+              size="small"
+              danger
+              onClick={() => {
+                void (async () => {
+                  try {
+                    await serverSend('/api/v1/alert-notify/history', 'DELETE', {})
+                    message.success('历史已清空')
+                    await loadHistory()
+                  } catch (e) {
+                    message.error(e instanceof Error ? e.message : String(e))
+                  }
+                })()
+              }}
+            >
+              清空
+            </Button>
+            <Button size="small" loading={historyLoading} onClick={() => void loadHistory()}>
+              刷新
+            </Button>
+          </Space>
+        }
+      >
+        <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+          失败渠道会自动退避重试（最多 5 次）；也可手动重试。
+        </Typography.Paragraph>
+        <Table
+          size="small"
+          rowKey="id"
+          loading={historyLoading}
+          pagination={{ pageSize: 8, size: 'small' }}
+          dataSource={history}
+          columns={[
+            {
+              title: '时间',
+              dataIndex: 'at',
+              width: 160,
+              render: (v: string) => {
+                try {
+                  return new Date(v).toLocaleString()
+                } catch {
+                  return v
+                }
+              }
+            },
+            {
+              title: '事件',
+              dataIndex: 'kind',
+              width: 110,
+              render: (k: string) =>
+                ALERT_EVENT_LABELS[k as AlertEventKind] || k
+            },
+            {
+              title: '标题',
+              dataIndex: 'title',
+              ellipsis: true
+            },
+            {
+              title: '设备',
+              dataIndex: 'deviceName',
+              width: 100,
+              ellipsis: true,
+              render: (v?: string) => v || '—'
+            },
+            {
+              title: '状态',
+              dataIndex: 'status',
+              width: 90,
+              render: (s: string, row) => (
+                <Tag color={row.ok ? 'success' : s === 'retrying' ? 'processing' : 'error'}>
+                  {s}
+                  {row.attempts > 1 ? ` ×${row.attempts}` : ''}
+                </Tag>
+              )
+            },
+            {
+              title: '渠道',
+              key: 'channels',
+              width: 160,
+              render: (_, row) =>
+                (row.results || [])
+                  .map((r) => `${r.channel}${r.ok ? '✓' : '✗'}`)
+                  .join(' ')
+            },
+            {
+              title: '',
+              key: 'retry',
+              width: 72,
+              render: (_, row) =>
+                row.ok ? null : (
+                  <Button
+                    size="small"
+                    type="link"
+                    loading={retryingId === row.id}
+                    onClick={() => {
+                      void (async () => {
+                        setRetryingId(row.id)
+                        try {
+                          await serverSend(
+                            `/api/v1/alert-notify/history/${encodeURIComponent(row.id)}/retry`,
+                            'POST',
+                            {}
+                          )
+                          message.success('已重试')
+                          await loadHistory()
+                        } catch (e) {
+                          message.error(e instanceof Error ? e.message : String(e))
+                        } finally {
+                          setRetryingId(null)
+                        }
+                      })()
+                    }}
+                  >
+                    重试
+                  </Button>
+                )
+            }
+          ]}
+        />
+      </Card>
 
       <PluginSlot name="settings.alerts.wechat.before" />
       <Card className="settings-card" title="微信推送（PushPlus / Server酱）">

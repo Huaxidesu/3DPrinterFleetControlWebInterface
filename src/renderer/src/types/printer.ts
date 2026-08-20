@@ -33,6 +33,13 @@ export interface DeviceConfig {
   bambuDeviceId?: string
   /** Bambu LAN IP / hostname */
   bambuHost?: string
+  /**
+   * LAN access code when connectionMode is cloud but FTPS/camera still use LAN
+   * (cloud MQTT token stays in secretKey). Prefer bambuLanSecretKey in secrets store.
+   */
+  bambuLanAccessCode?: string
+  /** Secret store key for LAN access code (e.g. bambu:lan:{id}) */
+  bambuLanSecretKey?: string
   /** Bambu cloud region */
   bambuRegion?: BambuRegion
   /** Bambu cloud numeric user id (MQTT username u_{id}) */

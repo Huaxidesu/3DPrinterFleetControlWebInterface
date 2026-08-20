@@ -55,6 +55,24 @@ function hasLanHost(d: DeviceRow): boolean {
   return Boolean(host)
 }
 
+/** Cloud device may still expose LAN if IP + LAN access code are stored. */
+function hasLanAccessHint(d: DeviceRow): boolean {
+  if (typeof d.bambuLanSecretKey === 'string' && d.bambuLanSecretKey.trim()) return true
+  if (typeof d.bambuLanAccessCode === 'string' && d.bambuLanAccessCode.trim()) return true
+  const pd = d.pluginData
+  if (pd && typeof pd === 'object' && !Array.isArray(pd)) {
+    const code = (pd as Record<string, unknown>).bambuLanAccessCode
+    if (typeof code === 'string' && code.trim()) return true
+  }
+  return false
+}
+
+function bambuLanCapable(d: DeviceRow, mode: string): boolean {
+  if (!hasLanHost(d)) return false
+  if (mode !== 'cloud') return true
+  return hasLanAccessHint(d)
+}
+
 function noneControl(): DeviceControlCaps {
   return {
     pause: false,
@@ -140,7 +158,7 @@ export function computeDeviceCapabilities(d: DeviceRow | null | undefined): Devi
     gcode = true
     moonrakerProxy = true
   } else if (brand === 'bambu') {
-    const lan = mode !== 'cloud' && hasLanHost(d)
+    const lan = bambuLanCapable(d, mode)
     control = {
       pause: true,
       resume: true,
@@ -167,8 +185,12 @@ export function computeDeviceCapabilities(d: DeviceRow | null | undefined): Devi
     camera = lan
     gcode = false
     moonrakerProxy = false
-    if (mode === 'cloud') {
-      notes.push('云端拓竹只能看状态/简单控制；上传文件开打请用局域网添加（IP+访问码），并开「仅局域网+开发者模式」')
+    if (mode === 'cloud' && lan) {
+      notes.push('云端状态 + 局域网传文件/摄像头（已配置 IP 与局域网访问码）')
+    } else if (mode === 'cloud') {
+      notes.push(
+        '云端拓竹只能看状态/简单控制；若需传文件开打，请在设备详情填写局域网 IP 与访问码（仅局域网+开发者模式）'
+      )
     } else if (!hasLanHost(d)) {
       notes.push('缺少局域网 IP，无法 FTPS 传文件/开打')
     }
@@ -182,11 +204,11 @@ export function computeDeviceCapabilities(d: DeviceRow | null | undefined): Devi
       set_speed: true
     }
     camera = true
-    notes.push('爱乐高 SDCP：无 home/jog/传文件/深控')
+    notes.push('爱乐高 SDCP：任务控制与摄像头；传文件/开打/深控未接入')
   } else if (brand === 'anycubic') {
     if (mode === 'cloud') {
       control = { ...none, pause: true, resume: true, cancel: true }
-      notes.push('纵维云端仅暂停/恢复/取消')
+      notes.push('纵维云端仅暂停/恢复/取消；传文件请改局域网或官方 App')
     } else {
       control = {
         ...none,
@@ -197,17 +219,17 @@ export function computeDeviceCapabilities(d: DeviceRow | null | undefined): Devi
         set_fan: true
       }
       camera = true
-      notes.push('纵维 LAN：无 home/jog/传文件/深控')
+      notes.push('纵维 LAN：有限控制与摄像头；传文件/开打未接入')
     }
   } else if (brand === 'flashforge') {
     control = { ...none, pause: true, resume: true, cancel: true }
-    notes.push('闪铸：仅任务控制')
+    notes.push('闪铸：仅任务控制；传文件未接入')
   } else if (brand === 'snapmaker') {
     control = { ...none, pause: true, resume: true, cancel: true }
     camera = true
-    notes.push('Snapmaker：仅任务控制')
+    notes.push('Snapmaker：任务控制与摄像头；传文件未接入')
   } else if (brand === 'creality' && mode === 'cloud') {
-    notes.push('创想云：仅状态，请改局域网')
+    notes.push('创想云：仅状态与有限控制；传文件/深控请改用局域网（Moonraker / 本机 IP）添加')
   } else {
     notes.push('未知品牌能力')
   }

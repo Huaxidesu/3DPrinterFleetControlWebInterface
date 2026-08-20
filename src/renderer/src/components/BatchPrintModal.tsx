@@ -18,7 +18,7 @@ import {
   type BatchPrintResult
 } from '../stores/deviceStore'
 import type { PrinterTech } from '../types/printer'
-import { assertSameBrandAndModel, deviceModelLabel } from '../utils/batchPrintGroup'
+import { assertSameBrandBatch, deviceModelLabel } from '../utils/batchPrintGroup'
 import { PluginSlot } from '../plugins/PluginSlot'
 
 const FDM_ACCEPT = '.gcode,.gco,.g,.bgcode,.nc'
@@ -55,7 +55,7 @@ export function BatchPrintModal({
 
   const supported = selected.filter(canBatchPrint)
   const unsupported = selected.filter((d) => !canBatchPrint(d))
-  const groupCheck = useMemo(() => assertSameBrandAndModel(supported), [supported])
+  const groupCheck = useMemo(() => assertSameBrandBatch(supported), [supported])
 
   const reset = () => {
     setFiles([])
@@ -155,7 +155,7 @@ export function BatchPrintModal({
           description={
             isResin
               ? '与 FDM 隔离：仅操作光固化设备。切片上传对接开发中；批量暂停/继续/停止已可用。'
-              : '与光固化隔离：仅操作 FDM 设备。批量导入打印要求所选设备品牌与机型完全一致。'
+              : '与光固化隔离：仅操作 FDM 设备。批量导入打印要求同品牌（机型可不同；拓竹需局域网）。'
           }
         />
         <PluginSlot name="device.batch.modal.alert.after" context={slotCtx} />
@@ -163,7 +163,7 @@ export function BatchPrintModal({
         <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
           {isResin
             ? '请勾选光固化打印机。切片格式与 FDM 的 G-code 不同，不会混用。'
-            : '勾选打印机后导入 G-code：单个文件发到全部所选设备；多个文件需与可打印设备一一对应。暂停/继续/停止可跨品牌，导入打印不可混品牌或混机型。'}
+            : '勾选打印机后导入 G-code：单个文件发到全部所选设备；多个文件需与可打印设备一一对应。暂停/继续/停止可跨品牌；导入打印须同品牌（可不同机型）。'}
         </Typography.Paragraph>
 
         <Typography.Text strong>已选设备（{selected.length}）</Typography.Text>
@@ -196,7 +196,7 @@ export function BatchPrintModal({
             type="info"
             showIcon
             style={{ marginBottom: 12 }}
-            message={`同品牌同机型：${groupCheck.brand} · ${groupCheck.modelLabel}（${supported.length} 台）`}
+            message={`同品牌：${groupCheck.brand} · ${groupCheck.modelLabel}（${supported.length} 台）`}
           />
         ) : null}
 

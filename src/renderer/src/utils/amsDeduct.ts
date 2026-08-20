@@ -149,7 +149,8 @@ async function resolveAutoJobGrams(
 
   if (track.brand === 'bambu') {
     const device = useDeviceStore.getState().devices.find((d) => d.id === track.deviceId)
-    if (!device || (device.connectionMode || 'lan') !== 'lan' || !device.bambuHost) {
+    // LAN or cloud+LAN hybrid: need printer IP for FTPS usage probe
+    if (!device || !String(device.bambuHost || '').trim()) {
       return null
     }
     if (isClientMode()) {
@@ -171,9 +172,12 @@ async function resolveAutoJobGrams(
       }
       return null
     }
-    const code = device.secretKey
-      ? await window.electronAPI?.secrets?.get(device.secretKey)
-      : null
+    const lanKey = device.bambuLanSecretKey || `bambu:lan:${device.id}`
+    const code =
+      (await window.electronAPI?.secrets?.get(lanKey)) ||
+      (device.connectionMode !== 'cloud' && device.secretKey
+        ? await window.electronAPI?.secrets?.get(device.secretKey)
+        : null)
     if (!code) return null
     const res = await window.electronAPI?.bambu?.fetchPrintUsage?.({
       host: device.bambuHost,

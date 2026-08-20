@@ -111,10 +111,14 @@ function patchToStatus(patch: LivePatch): Record<string, unknown> {
 }
 
 function canBatchPrint(d: DeviceRow): boolean {
-  if (d.connectionMode === 'cloud') return false
   if (d.tech === 'resin') return false
   const brand = String(d.brand || '')
-  return brand === 'klipper' || brand === 'creality' || brand === 'qidi' || brand === 'bambu'
+  if (brand === 'bambu') {
+    const host = String((d as { bambuHost?: string }).bambuHost || d.host || '').trim()
+    return Boolean(host)
+  }
+  if (d.connectionMode === 'cloud') return false
+  return brand === 'klipper' || brand === 'creality' || brand === 'qidi'
 }
 
 export class DeviceHost {
@@ -217,6 +221,31 @@ export class DeviceHost {
     const key = typeof d.secretKey === 'string' ? d.secretKey : ''
     if (!key) return ''
     return (await this.deps.getSecret(key)) || ''
+  }
+
+  /** LAN access code for FTPS/camera — cloud token is never used as FTPS password. */
+  private async bambuLanAccessCode(d: DeviceRow): Promise<string> {
+    const lanKey =
+      typeof d.bambuLanSecretKey === 'string' && d.bambuLanSecretKey.trim()
+        ? d.bambuLanSecretKey.trim()
+        : `bambu:lan:${String(d.id || '')}`
+    if (lanKey) {
+      const fromLan = (await this.deps.getSecret(lanKey)) || ''
+      if (fromLan.trim()) return fromLan.trim()
+    }
+    if (typeof d.bambuLanAccessCode === 'string' && d.bambuLanAccessCode.trim()) {
+      return d.bambuLanAccessCode.trim()
+    }
+    const pd = d.pluginData
+    if (pd && typeof pd === 'object' && !Array.isArray(pd)) {
+      const c = (pd as Record<string, unknown>).bambuLanAccessCode
+      if (typeof c === 'string' && c.trim()) return c.trim()
+    }
+    const secret = await this.secretFor(d)
+    if (d.connectionMode === 'cloud') {
+      return secret && secret.length <= 32 ? secret : ''
+    }
+    return secret
   }
 
   async connectDevice(d: DeviceRow): Promise<void> {
@@ -519,23 +548,25 @@ export class DeviceHost {
       }
 
       if (brand === 'bambu') {
-        if (d.connectionMode === 'cloud') {
-          return {
-            ok: false,
-            message:
-              '拓竹云端设备无法上传文件开打。请删除后用「局域网」重新添加（填 IP + 访问码），打印机屏幕开启「仅局域网模式」和「开发者模式」后再试。'
-          }
-        }
         const host = deviceHost(d)
         if (!host) {
           return {
             ok: false,
-            message: '缺少打印机局域网 IP，无法 FTPS 传文件。请在设备设置里填写 bambuHost / IP。'
+            message:
+              d.connectionMode === 'cloud'
+                ? '拓竹云端设备缺少局域网 IP。请在设备上填写 bambuHost，并配置 bambuLanAccessCode（局域网访问码）后即可传文件。'
+                : '缺少打印机局域网 IP，无法 FTPS 传文件。请在设备设置里填写 bambuHost / IP。'
           }
         }
-        const accessCode = await this.secretFor(d)
+        const accessCode = await this.bambuLanAccessCode(d)
         if (!accessCode) {
-          return { ok: false, message: '缺少局域网访问码，无法连接打印机 FTPS。' }
+          return {
+            ok: false,
+            message:
+              d.connectionMode === 'cloud'
+                ? '云端拓竹需额外配置局域网访问码（bambuLanAccessCode / pluginData.bambuLanAccessCode）才能 FTPS。'
+                : '缺少局域网访问码，无法连接打印机 FTPS。'
+          }
         }
         if (req.op === 'listFiles') {
           const files = await bambuListFiles({ host, accessCode })
@@ -579,10 +610,14 @@ export class DeviceHost {
     if (!d) return { ok: false, message: '设备不存在' }
     const brand = String(d.brand || '').toLowerCase()
     if (brand === 'bambu' && d.connectionMode === 'cloud') {
-      return {
-        ok: false,
-        message:
-          '拓竹云端设备无法上传文件开打。请用「局域网」重新添加（IP + 访问码），并开启「仅局域网 + 开发者模式」。'
+      const host = deviceHost(d)
+      const code = await this.bambuLanAccessCode(d)
+      if (!host || !code) {
+        return {
+          ok: false,
+          message:
+            '拓竹云端开打需同时配置局域网 IP（bambuHost）与访问码（bambuLanAccessCode）。亦可改用「局域网」重新添加。'
+        }
       }
     }
     let remotePath = req.filename

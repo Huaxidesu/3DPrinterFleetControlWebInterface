@@ -34,6 +34,7 @@ function loadDotEnv(file = join(process.cwd(), '.env')) {
 }
 loadDotEnv()
 import { ApiServer, defaultSettings, normalizeSettings, type AppSettings } from '../main/api/server'
+import { setMonitorSnapshotConcurrency } from '../main/api/monitorApi'
 import { UserStore } from '../main/auth/users'
 import { PrintRequestStore } from '../main/auth/printRequests'
 import { PresenceStore } from '../main/auth/presence'
@@ -58,7 +59,7 @@ import { getSecret, setSecret, deleteSecret } from './storage/secrets'
 import { DeviceHost } from './device/host'
 import { scanLanPrinters, cancelLanDiscover, type LanDiscoverOpts } from '../main/discover/lanScan'
 import { discoverCameras, fetchSnapshot } from '../main/camera/proxy'
-import { grabBambuJpegFrame, parseBambuCameraUrl } from '../main/bambu/camera'
+import { grabBambuCameraFrame, parseBambuCameraUrl } from '../main/bambu/camera'
 import {
   mergeDiscoveredWithExtra,
   parseDeviceExtraCameras,
@@ -392,7 +393,10 @@ async function bootstrap(): Promise<void> {
         if (opts.target) {
           const bambu = parseBambuCameraUrl(opts.target)
           if (bambu) {
-            const snap = await grabBambuJpegFrame(bambu.host, bambu.code, 12000)
+            const snap = await grabBambuCameraFrame(bambu.host, bambu.code, {
+              timeoutMs: 12000,
+              model: bambu.model
+            })
             if (!snap.ok) return snap
             return { ok: true, contentType: snap.contentType, base64: snap.base64 }
           }
@@ -407,11 +411,27 @@ async function bootstrap(): Promise<void> {
           const apiKey = secretKey
             ? secretsCache[secretKey] || (await resolveSecret(secretKey))
             : null
-          if (String(d.brand) === 'bambu' && d.connectionMode !== 'cloud') {
+          if (String(d.brand) === 'bambu') {
             const host = deviceHost(d)
-            const code = apiKey || ''
+            let code = ''
+            const lanKey =
+              typeof d.bambuLanSecretKey === 'string' && d.bambuLanSecretKey.trim()
+                ? d.bambuLanSecretKey.trim()
+                : `bambu:lan:${String(d.id || '')}`
+            code = secretsCache[lanKey] || (await resolveSecret(lanKey)) || ''
+            if (!code && typeof d.bambuLanAccessCode === 'string' && d.bambuLanAccessCode.trim()) {
+              code = d.bambuLanAccessCode.trim()
+            } else if (!code && d.pluginData && typeof d.pluginData === 'object') {
+              const c = (d.pluginData as Record<string, unknown>).bambuLanAccessCode
+              if (typeof c === 'string') code = c.trim()
+            }
+            if (!code && d.connectionMode !== 'cloud') code = apiKey || ''
+            else if (!code && apiKey && apiKey.length <= 32) code = apiKey
             if (host && code) {
-              const snap = await grabBambuJpegFrame(host, code, 12000)
+              const snap = await grabBambuCameraFrame(host, code, {
+                timeoutMs: 12000,
+                model: typeof d.model === 'string' ? d.model : undefined
+              })
               if (snap.ok) return { ok: true, contentType: snap.contentType, base64: snap.base64 }
             }
           }
@@ -688,7 +708,10 @@ async function bootstrap(): Promise<void> {
         }
         const bambu = parseBambuCameraUrl(target)
         if (bambu) {
-          const snap = await grabBambuJpegFrame(bambu.host, bambu.code, 12000)
+          const snap = await grabBambuCameraFrame(bambu.host, bambu.code, {
+            timeoutMs: 12000,
+            model: bambu.model
+          })
           if (!snap.ok) return snap
           return { ok: true as const, contentType: snap.contentType, base64: snap.base64 }
         }
@@ -784,6 +807,7 @@ async function bootstrap(): Promise<void> {
         }
         appSettings = normalizeSettings({ ...appSettings, ...mergedPatch })
         saveAppSettings(appSettings)
+        setMonitorSnapshotConcurrency(appSettings.monitorSnapshotConcurrency ?? 6)
         // Web server always stays up (Open API module removed; no toggle to stop HTTP)
         if (!apiServer.status().running) await apiServer.start()
         return { ok: true, settings: appSettings }
@@ -916,7 +940,10 @@ async function bootstrap(): Promise<void> {
       }
       const bambu = parseBambuCameraUrl(target)
       if (bambu) {
-        const snap = await grabBambuJpegFrame(bambu.host, bambu.code, 12000)
+        const snap = await grabBambuCameraFrame(bambu.host, bambu.code, {
+          timeoutMs: 12000,
+          model: bambu.model
+        })
         if (!snap.ok) return snap
         return { ok: true as const, contentType: snap.contentType, base64: snap.base64 }
       }

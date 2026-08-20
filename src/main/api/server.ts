@@ -15,6 +15,7 @@ import {
 import {
   handleMonitorApi,
   monitorSummaryCounts,
+  setMonitorSnapshotConcurrency,
   type MonitorApiDeps
 } from './monitorApi'
 
@@ -66,8 +67,14 @@ import {
   normalizeAlertNotifySettings,
   type AlertNotifySettings
 } from '../../shared/alertNotify'
-import { detectStatusAlertEvents, dispatchAlertNotify } from '../alert/dispatcher'
+import {
+  detectStatusAlertEvents,
+  dispatchAlertNotify,
+  ensureAlertRetryLoop
+} from '../alert/dispatcher'
+import { setAlertHistoryDataRoot } from '../alert/history'
 import { handleAlertNotifyApi } from './alertNotifyApi'
+import { handleBackupApi } from './backupApi'
 import { handlePluginApi } from './pluginApi'
 import { handleDocsApi } from './docsApi'
 import type { PluginManager } from '../plugin/manager'
@@ -189,6 +196,8 @@ export type AppSettings = {
   aiVision?: AiVisionSettings
   /** 异常对接（微信 / 短信 / 企微 / 钉钉 / Webhook） */
   alertNotify?: AlertNotifySettings
+  /** 监控墙快照全局并发（1–32，默认 6） */
+  monitorSnapshotConcurrency?: number
 }
 
 /** Clamp and return device refresh interval in seconds */
@@ -196,6 +205,12 @@ export function normalizeDeviceRefreshSec(v: unknown): number {
   const n = Math.round(Number(v))
   if (!Number.isFinite(n)) return 3
   return Math.max(1, Math.min(60, n))
+}
+
+export function normalizeMonitorSnapshotConcurrency(v: unknown): number {
+  const n = Math.round(Number(v))
+  if (!Number.isFinite(n)) return 6
+  return Math.max(1, Math.min(32, n))
 }
 
 /** Milliseconds for poll timers */
@@ -444,7 +459,8 @@ export function defaultSettings(): AppSettings {
     siteFooter: '',
     sso: defaultSsoSettings(),
     aiVision: defaultAiVisionSettings(),
-    alertNotify: defaultAlertNotifySettings()
+    alertNotify: defaultAlertNotifySettings(),
+    monitorSnapshotConcurrency: 6
   }
 }
 
@@ -538,7 +554,8 @@ export function normalizeSettings(raw: unknown): AppSettings {
     siteFooter: normalizeSiteFooter(o.siteFooter),
     sso: normalizeSsoSettings(o.sso),
     aiVision: normalizeAiVisionSettings(o.aiVision),
-    alertNotify: normalizeAlertNotifySettings(o.alertNotify)
+    alertNotify: normalizeAlertNotifySettings(o.alertNotify),
+    monitorSnapshotConcurrency: normalizeMonitorSnapshotConcurrency(o.monitorSnapshotConcurrency)
   }
 }
 
@@ -854,6 +871,19 @@ export class ApiServer {
     await this.stop()
     const s = this.deps.getSettings()
     this.lastError = undefined
+    try {
+      const dataRoot = dirname(this.deps.getFilamentPath())
+      setAlertHistoryDataRoot(dataRoot)
+      ensureAlertRetryLoop(
+        () => this.deps.getSettings() as never,
+        () => this.deps.getPluginManager?.() || null
+      )
+      setMonitorSnapshotConcurrency(
+        normalizeMonitorSnapshotConcurrency(this.deps.getSettings().monitorSnapshotConcurrency)
+      )
+    } catch {
+      /* ignore alert history init */
+    }
     return new Promise((resolve) => {
       const server = createServer((req, res) => {
         void this.handle(req, res)
@@ -1469,10 +1499,24 @@ export class ApiServer {
         res,
         sendJson,
         readBody,
+        auth,
         getSettings: () => this.deps.getSettings() as unknown as Record<string, unknown>,
         getPluginManager: () => this.deps.getPluginManager?.() || null
       })
       if (alertHandled) return
+
+      const backupHandled = await handleBackupApi({
+        method,
+        path,
+        url,
+        req,
+        res,
+        auth,
+        getFilamentPath: this.deps.getFilamentPath,
+        sendJson,
+        readBody
+      })
+      if (backupHandled) return
 
       const aiHandled = await handleAiVisionApi({
         method,

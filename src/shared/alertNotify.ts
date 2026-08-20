@@ -58,6 +58,12 @@ export type AlertNotifySettings = {
   events: Record<AlertEventKind, boolean>
   /** Min seconds between same device+event notifications */
   cooldownSec: number
+  /**
+   * Device filter for notifications with a deviceId.
+   * Events without deviceId always pass.
+   */
+  deviceMode: 'all' | 'include' | 'exclude'
+  deviceIds: string[]
 
   /** PushPlus 微信推送 https://www.pushplus.plus */
   pushplusEnabled: boolean
@@ -170,6 +176,8 @@ export function defaultAlertNotifySettings(): AlertNotifySettings {
     enabled: false,
     events: defaultEvents(),
     cooldownSec: 120,
+    deviceMode: 'all',
+    deviceIds: [],
     pushplusEnabled: false,
     pushplusToken: '',
     pushplusTopic: '',
@@ -229,10 +237,17 @@ export function normalizeAlertNotifySettings(raw: unknown): AlertNotifySettings 
     if (typeof evRaw[k] === 'boolean') events[k] = evRaw[k] as boolean
   }
   const cool = Math.round(Number(o.cooldownSec))
+  const deviceMode =
+    o.deviceMode === 'include' || o.deviceMode === 'exclude' ? o.deviceMode : 'all'
+  const deviceIds = Array.isArray(o.deviceIds)
+    ? o.deviceIds.map((x) => String(x || '').trim()).filter(Boolean)
+    : []
   return {
     enabled: o.enabled === true,
     events,
     cooldownSec: Number.isFinite(cool) ? Math.max(30, Math.min(3600, cool)) : base.cooldownSec,
+    deviceMode,
+    deviceIds,
     pushplusEnabled: o.pushplusEnabled === true,
     pushplusToken: asStr(o.pushplusToken).trim(),
     pushplusTopic: asStr(o.pushplusTopic).trim(),

@@ -585,6 +585,13 @@ export async function handleFullApi(opts: {
     if (created.secret && created.device.secretKey) {
       deps.setDeviceSecret(created.device.secretKey, created.secret)
     }
+    const lanCode = typeof body.bambuLanAccessCode === 'string' ? body.bambuLanAccessCode.trim() : ''
+    if (lanCode) {
+      const lanKey = `bambu:lan:${created.device.id}`
+      deps.setDeviceSecret(lanKey, lanCode)
+      updateDevice(deps.getDevicesPath(), created.device.id, { bambuLanSecretKey: lanKey })
+      created.device.bambuLanSecretKey = lanKey
+    }
     deps.onDevicesChanged?.()
     sendJson(res, 200, {
       ok: true,
@@ -625,6 +632,11 @@ export async function handleFullApi(opts: {
         return true
       }
       if (removed.removed.secretKey) deps.deleteDeviceSecret(removed.removed.secretKey)
+      const lanKey =
+        typeof removed.removed.bambuLanSecretKey === 'string'
+          ? removed.removed.bambuLanSecretKey
+          : `bambu:lan:${id}`
+      deps.deleteDeviceSecret(lanKey)
       deps.onDevicesChanged?.()
       sendJson(res, 200, { ok: true })
       return true
@@ -635,6 +647,22 @@ export async function handleFullApi(opts: {
       return true
     }
     let patchBody = parsed.body
+    const lanCodeRaw = patchBody.bambuLanAccessCode
+    const lanCode =
+      typeof lanCodeRaw === 'string' && lanCodeRaw.trim() ? lanCodeRaw.trim() : ''
+    const clearLanCode = lanCodeRaw === null || patchBody.clearBambuLanAccessCode === true
+    if (lanCode || clearLanCode) {
+      const lanKey = `bambu:lan:${id}`
+      if (clearLanCode) {
+        deps.deleteDeviceSecret(lanKey)
+        patchBody = { ...patchBody, bambuLanSecretKey: null }
+      } else {
+        deps.setDeviceSecret(lanKey, lanCode)
+        patchBody = { ...patchBody, bambuLanSecretKey: lanKey }
+      }
+      delete patchBody.bambuLanAccessCode
+      delete patchBody.clearBambuLanAccessCode
+    }
     try {
       const pm = deps.getPluginManager?.()
       if (pm) {

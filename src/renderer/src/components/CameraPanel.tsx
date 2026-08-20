@@ -226,7 +226,9 @@ export function CameraPanel({
                 {phase === 'fail'
                   ? errHint ||
                     (bambuFail
-                      ? '拓竹摄像头无法连接：需局域网 IP + 访问码，机舱摄像头已开（P1/A1；X1 暂不支持）'
+                      ? /ffmpeg|rtsp|:322/i.test(errHint)
+                        ? 'X1 舱内摄像头需服务器安装 ffmpeg，并确认局域网 IP + 访问码、RTSP :322 可达'
+                        : '拓竹摄像头无法连接：需局域网 IP + 访问码，机舱摄像头已开（P1/A1 走 :6000；X1 走 RTSP :322 且需 ffmpeg）'
                       : '摄像头无法连接（请确认已开启摄像头，或在 Fluidd 中查看摄像头地址）')
                   : '正在拉取画面…'}
               </Typography.Text>

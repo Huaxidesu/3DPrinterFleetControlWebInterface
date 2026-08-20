@@ -114,10 +114,15 @@ interface DeviceState {
   ) => Promise<BatchPrintResult[]>
 }
 
-/** FDM: Moonraker upload+print. Resin file push is brand-specific (not yet). */
+/** FDM: Moonraker / 拓竹 LAN upload+print. Resin file push is brand-specific (not yet). */
 export function canBatchPrint(device: DeviceConfig): boolean {
-  if (device.connectionMode === 'cloud') return false
   if (deviceTech(device) === 'resin') return false
+  // 拓竹：纯云端不可批量传文件；有局域网 IP（含云+LAN 混合）即可
+  if (device.brand === 'bambu') {
+    const host = String(device.bambuHost || device.host || '').trim()
+    return Boolean(host)
+  }
+  if (device.connectionMode === 'cloud') return false
   return device.brand === 'klipper' || device.brand === 'creality' || device.brand === 'qidi'
 }
 
@@ -448,12 +453,27 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
   },
 
   updateDevice: async (device) => {
+    const lanCode =
+      typeof (device as DeviceConfig & { bambuLanAccessCode?: string }).bambuLanAccessCode === 'string'
+        ? String((device as DeviceConfig & { bambuLanAccessCode?: string }).bambuLanAccessCode || '').trim()
+        : ''
+    const payload = { ...device } as DeviceConfig & { bambuLanAccessCode?: string }
+    if (lanCode) payload.bambuLanAccessCode = lanCode
+    else delete payload.bambuLanAccessCode
+
     if (isClientMode()) {
-      await serverSend(`/api/v1/devices/${encodeURIComponent(device.id)}`, 'PATCH', device)
+      await serverSend(`/api/v1/devices/${encodeURIComponent(device.id)}`, 'PATCH', payload)
       await get().refreshFromServer()
       return
     }
-    const devices = get().devices.map((d) => (d.id === device.id ? device : d))
+    if (lanCode) {
+      const lanKey = device.bambuLanSecretKey || `bambu:lan:${device.id}`
+      await window.electronAPI?.secrets.set(lanKey, lanCode)
+      payload.bambuLanSecretKey = lanKey
+      delete payload.bambuLanAccessCode
+    }
+    const { bambuLanAccessCode: _drop, ...persist } = payload
+    const devices = get().devices.map((d) => (d.id === device.id ? { ...persist } : d))
     set({ devices })
     persistDevices(devices)
   },

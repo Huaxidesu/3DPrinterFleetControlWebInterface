@@ -15,6 +15,13 @@ import {
   ALERT_EVENT_LABELS
 } from '../../shared/alertNotify'
 import { getWecomAccessToken } from '../auth/ssoProviders'
+import {
+  appendAlertHistory,
+  dueRetryEntries,
+  markRetryResult,
+  startAlertRetryLoop,
+  type AlertHistoryEntry
+} from './history'
 
 export type AlertNotifyChannelResult = {
   channel: string
@@ -591,15 +598,29 @@ async function sendSmsAll(
   }
 }
 
+function deviceAllowed(cfg: AlertNotifySettings, payload: AlertNotifyPayload): boolean {
+  const id = String(payload.deviceId || '').trim()
+  if (!id) return true
+  if (cfg.deviceMode === 'all') return true
+  const set = new Set(cfg.deviceIds.map((x) => String(x).trim()).filter(Boolean))
+  if (cfg.deviceMode === 'include') return set.has(id)
+  if (cfg.deviceMode === 'exclude') return !set.has(id)
+  return true
+}
+
 export async function dispatchAlertNotify(
   getSettings: GetSettings,
   payload: AlertNotifyPayload,
   opts?: {
     bypassCooldown?: boolean
     bypassEventGate?: boolean
+    bypassDeviceFilter?: boolean
     channels?: string[]
     /** Loose host so PluginManager is assignable without ctx contravariance issues */
     getPluginManager?: () => { runHook: (name: string, value: unknown, ctx?: unknown) => Promise<unknown> } | null
+    /** When retrying an existing history row */
+    historyId?: string
+    skipHistory?: boolean
   }
 ): Promise<AlertNotifyDispatchResult> {
   let event = payload
@@ -633,6 +654,9 @@ export async function dispatchAlertNotify(
   if (!opts?.bypassEventGate && !eventAllowed(getSettings, event.kind)) {
     return { ok: true, skipped: true, reason: '事件未启用或总开关关闭', results: [] }
   }
+  if (!opts?.bypassDeviceFilter && !deviceAllowed(cfg, event)) {
+    return { ok: true, skipped: true, reason: '设备未在通知订阅范围内', results: [] }
+  }
   if (!opts?.bypassCooldown && !applyCooldown(cfg, event)) {
     return { ok: true, skipped: true, reason: '冷却中', results: [] }
   }
@@ -651,6 +675,17 @@ export async function dispatchAlertNotify(
   }
   const results = await Promise.all(tasks)
   const out = { ok: results.some((r) => r.ok), results }
+  if (!opts?.skipHistory) {
+    try {
+      if (opts?.historyId) {
+        markRetryResult(opts.historyId, results, out.ok)
+      } else {
+        appendAlertHistory(event, results, out.ok)
+      }
+    } catch {
+      /* ignore persist errors */
+    }
+  }
   try {
     const pm = opts?.getPluginManager?.() as
       | { emitDomainEvent?: (name: string, payload?: unknown) => Promise<void> }
@@ -668,6 +703,54 @@ export async function dispatchAlertNotify(
   }
   return out
 }
+
+export async function processAlertRetries(
+  getSettings: GetSettings,
+  getPluginManager?: () => {
+    runHook: (name: string, value: unknown, ctx?: unknown) => Promise<unknown>
+  } | null
+): Promise<number> {
+  const due = dueRetryEntries()
+  let n = 0
+  for (const entry of due) {
+    const failedChannels = entry.results.filter((r) => !r.ok).map((r) => r.channel)
+    if (!failedChannels.length) continue
+    await dispatchAlertNotify(
+      getSettings,
+      {
+        kind: entry.kind as AlertNotifyPayload['kind'],
+        title: entry.title,
+        content: entry.content,
+        deviceId: entry.deviceId,
+        deviceName: entry.deviceName,
+        at: new Date().toISOString()
+      },
+      {
+        bypassCooldown: true,
+        bypassEventGate: true,
+        bypassDeviceFilter: true,
+        channels: failedChannels,
+        historyId: entry.id,
+        getPluginManager
+      }
+    )
+    n += 1
+  }
+  return n
+}
+
+export function ensureAlertRetryLoop(
+  getSettings: GetSettings,
+  getPluginManager?: () => {
+    runHook: (name: string, value: unknown, ctx?: unknown) => Promise<unknown>
+  } | null
+): void {
+  startAlertRetryLoop(async () => {
+    await processAlertRetries(getSettings, getPluginManager)
+  })
+}
+
+export type { AlertHistoryEntry }
 
 /** Detect printer status transitions and fan out notifications */
 export function detectStatusAlertEvents(

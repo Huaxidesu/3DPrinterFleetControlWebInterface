@@ -5,11 +5,13 @@ import type { DeviceConfig } from '../../types/printer'
 import type { AiVisionAlert } from '@shared/aiVision'
 import { isDeviceAiVisionEnabled } from '@shared/aiVision'
 import { useDeviceStore } from '../../stores/deviceStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { useAuthGrants } from '../../stores/authStore'
 import { isClientMode, serverGet } from '../../api/serverClient'
 import { PluginSlot } from '../../plugins/PluginSlot'
 import { getHanyePlugin } from '../../plugins/runtime'
 import { SnapshotCam } from './SnapshotCam'
+import { setSnapshotConcurrency } from './snapshotScheduler'
 import {
   MonitorTilePluginFooter,
   MonitorTilePluginHeader,
@@ -73,6 +75,16 @@ export function MonitorWallPage() {
     }
   }
 
+  const allowedDevices = useMemo(
+    () => devices.filter((d) => canDevice(d.id, 'view')),
+    [devices, canDevice, deviceAcl, permissions]
+  )
+
+  const snapConcurrency = useSettingsStore((s) => s.settings.monitorSnapshotConcurrency)
+  useEffect(() => {
+    setSnapshotConcurrency(snapConcurrency || 6)
+  }, [snapConcurrency])
+
   useEffect(() => {
     if (!isClientMode()) return
     let cancelled = false
@@ -101,11 +113,6 @@ export function MonitorWallPage() {
     }
     return map
   }, [aiAlerts])
-
-  const allowedDevices = useMemo(
-    () => devices.filter((d) => canDevice(d.id, 'view')),
-    [devices, canDevice, deviceAcl, permissions]
-  )
 
   const deviceKey = useMemo(() => allowedDevices.map((d) => d.id).join('|'), [allowedDevices])
   const aclKey = useMemo(() => JSON.stringify(deviceAcl || {}), [deviceAcl])
@@ -353,6 +360,8 @@ export function MonitorWallPage() {
                     title={tileTitle}
                     subtitle={camName}
                     cameras={slot.cameras}
+                    alertDeviceId={live.id}
+                    alertDeviceName={live.name}
                     alertLabel={
                       aiOn && alert
                         ? `${alert.label} ${Math.round(alert.confidence * 100)}%`

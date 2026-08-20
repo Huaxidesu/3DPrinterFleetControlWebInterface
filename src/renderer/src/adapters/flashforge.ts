@@ -107,7 +107,7 @@ export class FlashforgeAdapter implements PrinterAdapter {
   }
 
   async uploadFile(_file: File): Promise<void> {
-    throw new Error('闪铸文件上传后续版本再接入')
+    throw new Error('闪铸暂不支持监控台传文件；请用官方软件')
   }
 
   async downloadFile(_remotePath: string): Promise<ArrayBuffer> {
@@ -115,7 +115,7 @@ export class FlashforgeAdapter implements PrinterAdapter {
   }
 
   async printFile(_remotePath: string): Promise<void> {
-    throw new Error('闪铸远程开打后续版本再接入')
+    throw new Error('闪铸暂不支持监控台远程开打')
   }
 
   async getCameras() {

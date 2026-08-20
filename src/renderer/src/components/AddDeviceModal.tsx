@@ -1485,7 +1485,7 @@ export function AddDeviceModal({
           <Form.Item
             name="model"
             label="机型"
-            extra="批量导入打印要求同品牌同机型；例如 X1C、K1 Max、Ender-3 V3"
+            extra="批量导入打印要求同品牌（机型可不同）；拓竹需填局域网 IP"
           >
             <Input placeholder="例如：K1 Max / X1C / Voron 2.4" />
           </Form.Item>

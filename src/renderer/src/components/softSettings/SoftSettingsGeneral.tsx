@@ -4,15 +4,19 @@ import {
   Card,
   ColorPicker,
   Input,
+  InputNumber,
   Modal,
   Radio,
   Select,
   Space,
   Switch,
   Typography,
+  Upload,
   message
 } from 'antd'
 import {
+  CloudDownloadOutlined,
+  CloudUploadOutlined,
   FolderOpenOutlined,
   PictureOutlined,
   ReloadOutlined,
@@ -21,7 +25,8 @@ import {
 import { useDeviceStore } from '../../stores/deviceStore'
 import { useFilamentStore } from '../../stores/filamentStore'
 import { useSettingsStore, type UiBgMode, type UiThemeId } from '../../stores/settingsStore'
-import { isRemoteDataMode } from '../../utils/appMode'
+import { useAuthStore, apiFetch } from '../../stores/authStore'
+import { isAdminUi, isRemoteDataMode } from '../../utils/appMode'
 import { isWebBrowser } from '@shared/platform'
 import { UI_THEMES, applyAppearance, resolveUiTheme, styleDefToUiTheme } from '../../theme/appearance'
 import { useThemePackStore } from '../../theme/themePackStore'
@@ -35,6 +40,8 @@ export function SoftSettingsGeneral() {
   const [busy, setBusy] = useState(false)
   const [migrate, setMigrate] = useState(true)
   const [pickingBg, setPickingBg] = useState(false)
+  const [backupBusy, setBackupBusy] = useState(false)
+  const [includeSecrets, setIncludeSecrets] = useState(false)
 
   const deviceInit = useDeviceStore((s) => s.init)
   const filamentInit = useFilamentStore((s) => s.init)
@@ -45,6 +52,9 @@ export function SoftSettingsGeneral() {
   const settingsInit = useSettingsStore((s) => s.init)
   const isClient = isRemoteDataMode()
   const isWeb = isWebBrowser()
+  const adminUi = isAdminUi()
+  const token = useAuthStore((s) => s.token)
+  const serverUrl = useAuthStore((s) => s.serverUrl)
 
   const refresh = async () => {
     if (isWeb) return
@@ -220,6 +230,69 @@ export function SoftSettingsGeneral() {
     }
   }
 
+  const exportBackup = async () => {
+    setBackupBusy(true)
+    try {
+      const qs = includeSecrets ? '?includeSecrets=1' : ''
+      const res = await apiFetch(serverUrl, `/api/v1/backup/export${qs}`, {
+        token: token || undefined
+      })
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { message?: string }
+        throw new Error(j.message || `导出失败 HTTP ${res.status}`)
+      }
+      const blob = await res.blob()
+      const a = document.createElement('a')
+      const url = URL.createObjectURL(blob)
+      a.href = url
+      a.download = `hanye-backup-${new Date().toISOString().slice(0, 10)}.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+      message.success('备份已下载')
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '导出失败')
+    } finally {
+      setBackupBusy(false)
+    }
+  }
+
+  const importBackupFile = (file: File) => {
+    Modal.confirm({
+      title: '确认恢复备份？',
+      content: '将覆盖服务器上对应的配置文件（设备、用户、设置等）。建议先导出一份当前备份。',
+      okText: '覆盖导入',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        setBackupBusy(true)
+        try {
+          const buf = await file.arrayBuffer()
+          const bytes = new Uint8Array(buf)
+          let binary = ''
+          const chunk = 0x8000
+          for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+          }
+          const zipBase64 = btoa(binary)
+          const res = await apiFetch(serverUrl, '/api/v1/backup/import', {
+            method: 'POST',
+            token: token || undefined,
+            body: JSON.stringify({ zipBase64, confirm: true })
+          })
+          const j = (await res.json()) as { ok?: boolean; message?: string }
+          if (!res.ok || !j.ok) throw new Error(j.message || '导入失败')
+          message.success(j.message || '导入成功')
+          await reloadStores()
+        } catch (e) {
+          message.error(e instanceof Error ? e.message : '导入失败')
+        } finally {
+          setBackupBusy(false)
+        }
+      }
+    })
+    return false
+  }
+
   return (
     <>
       <PluginSlot name="settings.general.before" />
@@ -257,6 +330,27 @@ export function SoftSettingsGeneral() {
                   message.success('已保存，正在按新间隔重连设备…')
                   void useDeviceStore.getState().reconnectAll()
                 }
+              })()
+            }}
+          />
+        </div>
+        <div className="settings-row" style={{ marginBottom: 12 }}>
+          <div className="settings-row-label">
+            <Typography.Text strong>监控墙快照并发</Typography.Text>
+            <Typography.Text type="secondary">
+              全局同时拉取快照路数（1–32，默认 6）。路数多时可调低，减轻浏览器与打印机压力
+            </Typography.Text>
+          </div>
+          <InputNumber
+            min={1}
+            max={32}
+            style={{ width: 120 }}
+            value={settings.monitorSnapshotConcurrency}
+            onChange={(v) => {
+              void (async () => {
+                const n = Math.max(1, Math.min(32, Number(v) || 6))
+                await save({ monitorSnapshotConcurrency: n })
+                message.success('已保存')
               })()
             }}
           />
@@ -530,6 +624,35 @@ export function SoftSettingsGeneral() {
       </Card>
           <PluginSlot name="settings.general.data.after" />
         </>
+      ) : null}
+      {adminUi ? (
+        <Card className="settings-card" title="备份 / 恢复" style={{ marginTop: 12 }}>
+          <Typography.Paragraph type="secondary">
+            导出设备、用户、设置、耗材、导航、监控区域等配置为 ZIP。默认不含 secrets；导入会覆盖同名文件。
+          </Typography.Paragraph>
+          <div className="settings-row" style={{ marginBottom: 12 }}>
+            <div className="settings-row-label">
+              <Typography.Text strong>导出时包含密钥</Typography.Text>
+              <Typography.Text type="secondary">secrets.json（设备访问码等），请妥善保管备份包</Typography.Text>
+            </div>
+            <Switch checked={includeSecrets} onChange={setIncludeSecrets} />
+          </div>
+          <Space wrap>
+            <Button
+              type="primary"
+              icon={<CloudDownloadOutlined />}
+              loading={backupBusy}
+              onClick={() => void exportBackup()}
+            >
+              导出备份
+            </Button>
+            <Upload accept=".zip,application/zip" showUploadList={false} beforeUpload={importBackupFile}>
+              <Button icon={<CloudUploadOutlined />} loading={backupBusy}>
+                导入备份
+              </Button>
+            </Upload>
+          </Space>
+        </Card>
       ) : null}
       <PluginSlot name="settings.general.after" />
     </>
