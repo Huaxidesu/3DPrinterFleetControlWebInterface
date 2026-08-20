@@ -23,9 +23,24 @@
 5. [常用命令](#5-常用命令)
 6. [文档](#6-文档)
 
-👉 仓库镜像：[GitHub](https://github.com/hanye1993/3DPrinterFleetControlWebInterface) · [Gitee](https://gitee.com/hanye11/3DPrinterFleetControlWebInterface) · [GitCode](https://gitcode.com/hanye6666/3DPrinterFleetControlWebInterface)（「软件设置 → 关于」可自选更新平台）
+👉 **代码仓库（三端同步）**
 
-发布到三端可执行：`chmod +x ops/scripts/push-all-mirrors.sh && ./ops/scripts/push-all-mirrors.sh`（需已登录各平台凭证）。
+| 平台 | 地址 |
+|------|------|
+| GitHub | https://github.com/hanye1993/3DPrinterFleetControlWebInterface |
+| Gitee | https://gitee.com/hanye11/3DPrinterFleetControlWebInterface |
+| GitCode | https://gitcode.com/hanye6666/3DPrinterFleetControlWebInterface |
+
+用户在「软件设置 → 关于」里可选上述任一平台检查 / 下载更新（默认 Gitee，国内更稳）。
+
+维护者发版后同步到三端：
+
+```bash
+chmod +x ops/scripts/push-all-mirrors.sh   # 首次需要
+./ops/scripts/push-all-mirrors.sh          # 推送当前分支 + 全部标签
+```
+
+需本机已配置好各平台 HTTPS 凭证（私人令牌），脚本会依次推送 `origin`（GitHub）、`gitee`、`gitcode`。
 
 ---
 
