@@ -33,15 +33,6 @@
 
 用户在「软件设置 → 关于」里可选上述任一平台检查 / 下载更新（默认 Gitee，国内更稳）。
 
-维护者发版后同步到三端：
-
-```bash
-chmod +x ops/scripts/push-all-mirrors.sh   # 首次需要
-./ops/scripts/push-all-mirrors.sh          # 推送当前分支 + 全部标签
-```
-
-需本机已配置好各平台 HTTPS 凭证（私人令牌），脚本会依次推送 `origin`（GitHub）、`gitee`、`gitcode`。
-
 ---
 
 ## 1. 快速开始（源码）
