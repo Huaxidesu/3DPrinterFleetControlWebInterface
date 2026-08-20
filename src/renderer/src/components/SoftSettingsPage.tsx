@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Tabs, Typography } from 'antd'
 import {
   AppstoreAddOutlined,
   AuditOutlined,
   BankOutlined,
   BellOutlined,
+  ControlOutlined,
   HistoryOutlined,
   InfoCircleOutlined,
   MenuOutlined,
@@ -25,6 +26,10 @@ import { SoftSettingsPlugins } from './softSettings/SoftSettingsPlugins'
 import { SoftSettingsThemes } from './softSettings/SoftSettingsThemes'
 import { SoftSettingsMarketplace } from './softSettings/SoftSettingsMarketplace'
 import { SoftSettingsAbout } from './softSettings/SoftSettingsAbout'
+import {
+  SoftSettingsPluginSettings,
+  filterVisiblePluginSettingsTabs
+} from './softSettings/SoftSettingsPluginSettings'
 import { QuoteHistoryPage } from './QuoteHistoryPage'
 import { UsersPage } from './UsersPage'
 import { PrintApprovalPage } from './PrintApprovalPage'
@@ -47,43 +52,11 @@ type TabEntry = {
   children: ReactNode
 }
 
-function PluginSettingsTabPane({ tab }: { tab: PluginSettingsTab }) {
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    el.innerHTML = ''
-    let cleanup: (() => void) | void
-    try {
-      cleanup = tab.render(el)
-    } catch (e) {
-      console.error('[settings tab]', tab.key, e)
-      el.textContent = '插件设置页渲染失败'
-    }
-    return () => {
-      if (typeof cleanup === 'function') {
-        try {
-          cleanup()
-        } catch {
-          /* ignore */
-        }
-      }
-      el.innerHTML = ''
-    }
-  }, [tab])
-  return (
-    <>
-      <PluginSlot name={`settings.tab.${tab.key}.before`} />
-      <PluginSlot name={`settings.tab.${tab.key}`} replace>
-        <div ref={ref} className="settings-tab-panel plugin-settings-tab" />
-      </PluginSlot>
-      <PluginSlot name={`settings.tab.${tab.key}.after`} />
-    </>
-  )
-}
+const BUILTIN_TAB_KEYS = new Set(Object.keys(SETTINGS_TAB_ORDER))
 
 export function SoftSettingsPage({ initialTab }: { initialTab?: SoftTab } = {}) {
   const [tab, setTab] = useState<SoftTab>(initialTab || 'general')
+  const [pluginSubTab, setPluginSubTab] = useState<string | undefined>()
   const [pluginTabs, setPluginTabs] = useState<PluginSettingsTab[]>(() =>
     getHanyePlugin().getSettingsTabs()
   )
@@ -108,9 +81,25 @@ export function SoftSettingsPage({ initialTab }: { initialTab?: SoftTab } = {}) 
     can('device.action.print.request') ||
     can('device.action.print')
 
+  const visiblePluginTabs = useMemo(
+    () => filterVisiblePluginSettingsTabs(pluginTabs),
+    [pluginTabs]
+  )
+  const showPluginSettings = visiblePluginTabs.length > 0
+  const pluginTabKeys = useMemo(
+    () => new Set(visiblePluginTabs.map((t) => t.key)),
+    [visiblePluginTabs]
+  )
+
   useEffect(() => {
-    if (initialTab) setTab(initialTab)
-  }, [initialTab])
+    if (!initialTab) return
+    if (pluginTabKeys.has(initialTab)) {
+      setTab('pluginSettings')
+      setPluginSubTab(initialTab)
+      return
+    }
+    setTab(initialTab)
+  }, [initialTab, pluginTabKeys])
 
   useEffect(() => {
     const runtime = getHanyePlugin()
@@ -120,10 +109,13 @@ export function SoftSettingsPage({ initialTab }: { initialTab?: SoftTab } = {}) 
     })
   }, [])
 
-  const pluginTabKeys = useMemo(
-    () => new Set(pluginTabs.map((t) => t.key)),
-    [pluginTabs]
-  )
+  // Deep-link / stale state: plugin tab keys open under 插件设置
+  useEffect(() => {
+    if (pluginTabKeys.has(tab)) {
+      setPluginSubTab(tab)
+      setTab('pluginSettings')
+    }
+  }, [tab, pluginTabKeys])
 
   const activeKey =
     (tab === 'enterprise' && !showEnterprise) ||
@@ -132,6 +124,7 @@ export function SoftSettingsPage({ initialTab }: { initialTab?: SoftTab } = {}) 
     (tab === 'plugins' && !showPlugins) ||
     (tab === 'themes' && !showThemes) ||
     (tab === 'marketplace' && !showMarketplace) ||
+    (tab === 'pluginSettings' && !showPluginSettings) ||
     (tab === 'brand' && !showBrand) ||
     (tab === 'nav' && !showNav) ||
     (tab === 'quoteHistory' && !showQuoteHistory) ||
@@ -150,13 +143,15 @@ export function SoftSettingsPage({ initialTab }: { initialTab?: SoftTab } = {}) 
           tab === 'plugins' ||
           tab === 'themes' ||
           tab === 'marketplace' ||
+          tab === 'pluginSettings' ||
           tab === 'about' ||
-          pluginTabKeys.has(tab)
+          BUILTIN_TAB_KEYS.has(tab)
         ? tab
-        : 'general'
+        : pluginTabKeys.has(tab)
+          ? 'pluginSettings'
+          : 'general'
 
   const items = useMemo(() => {
-    const runtime = getHanyePlugin()
     const entries: TabEntry[] = [
       {
         key: 'general',
@@ -421,6 +416,31 @@ export function SoftSettingsPage({ initialTab }: { initialTab?: SoftTab } = {}) 
       })
     }
 
+    if (showPluginSettings) {
+      entries.push({
+        key: 'pluginSettings',
+        sort: SETTINGS_TAB_ORDER.pluginSettings,
+        label: (
+          <span>
+            <ControlOutlined /> 插件设置
+          </span>
+        ),
+        children: (
+          <div className="settings-tab-panel">
+            <PluginSlot name="settings.tab.pluginSettings.before" />
+            <PluginSlot name="settings.tab.pluginSettings" replace>
+              <SoftSettingsPluginSettings
+                tabs={visiblePluginTabs}
+                activeSubKey={pluginSubTab}
+                onSubKeyChange={setPluginSubTab}
+              />
+            </PluginSlot>
+            <PluginSlot name="settings.tab.pluginSettings.after" />
+          </div>
+        )
+      })
+    }
+
     entries.push({
       key: 'about',
       sort: SETTINGS_TAB_ORDER.about,
@@ -440,20 +460,12 @@ export function SoftSettingsPage({ initialTab }: { initialTab?: SoftTab } = {}) 
       )
     })
 
-    for (const pt of pluginTabs) {
-      if (pt.adminOnly && !isAdminUi()) continue
-      entries.push({
-        key: pt.key,
-        sort: runtime.resolveSettingsTabOrder(pt),
-        label: <span>{pt.label}</span>,
-        children: <PluginSettingsTabPane tab={pt} />
-      })
-    }
-
     entries.sort((a, b) => a.sort - b.sort || a.key.localeCompare(b.key))
     return entries.map(({ key, label, children }) => ({ key, label, children }))
   }, [
-    pluginTabs,
+    visiblePluginTabs,
+    showPluginSettings,
+    pluginSubTab,
     showEnterprise,
     showAi,
     showAlerts,
@@ -475,13 +487,13 @@ export function SoftSettingsPage({ initialTab }: { initialTab?: SoftTab } = {}) 
         软件设置
       </Typography.Title>
       <Typography.Paragraph type="secondary" className="settings-page-desc">
-        纯网页版（电脑 / 手机自适应）。顶部「品牌」改网站名/Logo/标题/底部/ICO；「导航」改菜单与
-        HTML 单页；「报价记录 / 用户权限 / 打印审核」在此管理；「应用集市」一键安装插件/主题。
+        纯网页版（电脑 / 手机自适应）。品牌、导航、对接与应用集市等；已开启插件的设置统一在「插件设置」。
       </Typography.Paragraph>
       <PluginSlot name="settings.header.after" />
       <PluginSlot name="settings.content" replace>
         <Tabs
           className="soft-settings-tabs"
+          size="middle"
           activeKey={activeKey}
           onChange={(k) => setTab(k)}
           destroyInactiveTabPane

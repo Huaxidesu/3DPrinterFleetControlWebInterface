@@ -61,6 +61,8 @@ export const SETTINGS_TAB_ORDER: Record<string, number> = {
   themes: 500,
   marketplace: 550,
   plugins: 600,
+  /** Collects all registerSettingsTab() entries; not shown as top-level peers */
+  pluginSettings: 650,
   about: 10000
 }
 

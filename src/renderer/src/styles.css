@@ -1152,6 +1152,14 @@ html.nav-rail-collapsed .app-shell-layout-workspace .app-rail {
   margin-bottom: 12px;
 }
 
+.soft-plugin-settings-desc {
+  margin-bottom: 8px !important;
+}
+
+.soft-plugin-settings-tabs > .ant-tabs-nav {
+  margin-bottom: 10px;
+}
+
 .settings-tab-panel {
   display: flex;
   flex-direction: column;
