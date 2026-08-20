@@ -100,7 +100,12 @@ import {
 import {
   applyGithubSourceUpdate,
   checkGithubUpdate,
-  readLocalPackageVersion
+  listUpdateMirrors,
+  readLocalPackageVersion,
+  readPreferredMirror,
+  setUpdatePrefsDataRoot,
+  writePreferredMirror,
+  isUpdateMirrorId
 } from '../update/githubUpdate'
 
 export type { DeviceControlAction }
@@ -2630,12 +2635,64 @@ export class ApiServer {
         return
       }
 
+      if (method === 'GET' && path === '/api/v1/update/mirrors') {
+        const preferred = readPreferredMirror(dirname(this.deps.getFilamentPath()))
+        sendJson(res, 200, {
+          ok: true,
+          preferred,
+          mirrors: listUpdateMirrors()
+        })
+        return
+      }
+
+      if (method === 'POST' && path === '/api/v1/update/mirror') {
+        const canSet =
+          auth.kind === 'local' ||
+          (auth.kind === 'user' && auth.user.level === 'admin')
+        if (!canSet) {
+          sendJson(res, 403, { ok: false, message: '仅管理员可切换更新平台' })
+          return
+        }
+        const raw = await readBody(req)
+        let body: { mirror?: string } = {}
+        try {
+          body = raw ? (JSON.parse(raw) as { mirror?: string }) : {}
+        } catch {
+          sendJson(res, 400, { ok: false, message: 'Invalid JSON body' })
+          return
+        }
+        if (!isUpdateMirrorId(body.mirror)) {
+          sendJson(res, 400, { ok: false, message: 'mirror 须为 github | gitee | gitcode' })
+          return
+        }
+        const dataRoot = dirname(this.deps.getFilamentPath())
+        setUpdatePrefsDataRoot(dataRoot)
+        const preferred = writePreferredMirror(body.mirror, dataRoot)
+        sendJson(res, 200, {
+          ok: true,
+          preferred,
+          mirrors: listUpdateMirrors()
+        })
+        return
+      }
+
       if (method === 'GET' && path === '/api/v1/update/check') {
         const force = url.searchParams.get('force') === '1'
+        const mirrorParam = url.searchParams.get('mirror')
+        const dataRoot = dirname(this.deps.getFilamentPath())
+        setUpdatePrefsDataRoot(dataRoot)
         const current = this.deps.version || readLocalPackageVersion()
-        const result = await checkGithubUpdate({ currentVersion: current, force })
-        // Always 200: unreachable GitHub is a normal check outcome, not an HTTP failure.
-        sendJson(res, 200, { ...result })
+        const result = await checkGithubUpdate({
+          currentVersion: current,
+          force,
+          mirror: mirrorParam
+        })
+        // Always 200: unreachable mirror is a normal check outcome, not an HTTP failure.
+        sendJson(res, 200, {
+          ...result,
+          preferred: readPreferredMirror(dataRoot),
+          mirrors: listUpdateMirrors()
+        })
         return
       }
 
@@ -2647,8 +2704,23 @@ export class ApiServer {
           sendJson(res, 403, { ok: false, message: '仅管理员可执行源码更新' })
           return
         }
+        const dataRoot = dirname(this.deps.getFilamentPath())
+        setUpdatePrefsDataRoot(dataRoot)
+        const raw = await readBody(req)
+        let body: { mirror?: string } = {}
+        try {
+          body = raw ? (JSON.parse(raw) as { mirror?: string }) : {}
+        } catch {
+          body = {}
+        }
+        if (isUpdateMirrorId(body.mirror)) {
+          writePreferredMirror(body.mirror, dataRoot)
+        }
         const current = this.deps.version || readLocalPackageVersion()
-        const result = await applyGithubSourceUpdate({ currentVersion: current })
+        const result = await applyGithubSourceUpdate({
+          currentVersion: current,
+          mirror: isUpdateMirrorId(body.mirror) ? body.mirror : undefined
+        })
         sendJson(res, result.ok ? 200 : result.reachable ? 500 : 502, result)
         return
       }

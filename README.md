@@ -23,6 +23,8 @@
 5. [常用命令](#5-常用命令)
 6. [文档](#6-文档)
 
+👉 仓库镜像：[GitHub](https://github.com/hanye1993/3DPrinterFleetControlWebInterface) · [Gitee](https://gitee.com/hanye11/3DPrinterFleetControlWebInterface) · [GitCode](https://gitcode.com/hanye6666/3DPrinterFleetControlWebInterface)（「软件设置 → 关于」可自选更新平台）
+
 ---
 
 ## 1. 快速开始（源码）

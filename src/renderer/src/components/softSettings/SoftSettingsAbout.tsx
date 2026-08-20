@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Card, Modal, Space, Typography, message } from 'antd'
+import { Alert, Button, Card, Modal, Segmented, Space, Typography, message } from 'antd'
 import { CloudDownloadOutlined, GithubOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons'
 import { openExternal } from '../../utils/openExternal'
 import { PluginSlot } from '../../plugins/PluginSlot'
@@ -7,12 +7,22 @@ import { useAuthStore, apiFetch } from '../../stores/authStore'
 
 const LS_LAST = 'hanye_update_last_check_at'
 const LS_HINT = 'hanye_update_pending_hint'
+const LS_MIRROR = 'hanye_update_mirror'
 const DAY_MS = 24 * 60 * 60 * 1000
-const REPO_URL = 'https://github.com/hanye1993/3DPrinterFleetControlWebInterface'
+const DEFAULT_REPO_URL = 'https://gitee.com/hanye11/3DPrinterFleetControlWebInterface'
 /** Build-time version from package.json — always available without API */
 const BUILTIN_VERSION = String(
   typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.4.1'
 ).replace(/^v/i, '') || '1.4.1'
+
+export type UpdateMirrorId = 'github' | 'gitee' | 'gitcode'
+
+export type UpdateMirrorInfo = {
+  id: UpdateMirrorId
+  label: string
+  hostHint: string
+  webUrl: string
+}
 
 export type UpdateCheckPayload = {
   ok: boolean
@@ -28,6 +38,35 @@ export type UpdateCheckPayload = {
   deployMode?: 'docker' | 'source'
   canApplyUpdate?: boolean
   canAutoRebuild?: boolean
+  mirror?: UpdateMirrorId
+  mirrorLabel?: string
+  preferred?: UpdateMirrorId
+  mirrors?: UpdateMirrorInfo[]
+}
+
+const FALLBACK_MIRRORS: UpdateMirrorInfo[] = [
+  {
+    id: 'github',
+    label: 'GitHub',
+    hostHint: 'github.com',
+    webUrl: 'https://github.com/hanye1993/3DPrinterFleetControlWebInterface'
+  },
+  {
+    id: 'gitee',
+    label: 'Gitee',
+    hostHint: 'gitee.com',
+    webUrl: 'https://gitee.com/hanye11/3DPrinterFleetControlWebInterface'
+  },
+  {
+    id: 'gitcode',
+    label: 'GitCode',
+    hostHint: 'gitcode.com',
+    webUrl: 'https://gitcode.com/hanye6666/3DPrinterFleetControlWebInterface'
+  }
+]
+
+function isMirrorId(v: unknown): v is UpdateMirrorId {
+  return v === 'github' || v === 'gitee' || v === 'gitcode'
 }
 
 async function fetchLocalAppVersion(): Promise<string> {
@@ -42,9 +81,15 @@ async function fetchLocalAppVersion(): Promise<string> {
   }
 }
 
-export async function fetchUpdateCheck(force = false): Promise<UpdateCheckPayload> {
+export async function fetchUpdateCheck(
+  force = false,
+  mirror?: UpdateMirrorId | null
+): Promise<UpdateCheckPayload> {
   const { serverUrl, token } = useAuthStore.getState()
-  const path = force ? '/api/v1/update/check?force=1' : '/api/v1/update/check'
+  const qs = new URLSearchParams()
+  if (force) qs.set('force', '1')
+  if (mirror) qs.set('mirror', mirror)
+  const path = `/api/v1/update/check${qs.toString() ? `?${qs}` : ''}`
   const localVersion = await fetchLocalAppVersion()
   const res = await apiFetch(serverUrl, path, { token: token || undefined })
   let j: Partial<UpdateCheckPayload> & { message?: string } = {}
@@ -61,12 +106,14 @@ export async function fetchUpdateCheck(force = false): Promise<UpdateCheckPayloa
       currentVersion: localVersion,
       latestVersion: null,
       latestTag: null,
-      releaseUrl: REPO_URL,
+      releaseUrl: DEFAULT_REPO_URL,
       message:
         res.status === 401
           ? '未登录或登录已失效，请重新登录后再检查更新'
           : j.message ||
-            '检查不到更新：服务器无法访问 github.com（git / 网页均可）。浏览器能打开不等于服务器能连通。'
+            '检查不到更新：服务器无法访问所选平台。浏览器能打开不等于服务器能连通。',
+      mirrors: FALLBACK_MIRRORS,
+      preferred: mirror || 'gitee'
     }
   }
   return {
@@ -76,14 +123,28 @@ export async function fetchUpdateCheck(force = false): Promise<UpdateCheckPayloa
     currentVersion: j.currentVersion || localVersion,
     latestVersion: j.latestVersion ?? null,
     latestTag: j.latestTag ?? null,
-    releaseUrl: j.releaseUrl || REPO_URL,
+    releaseUrl: j.releaseUrl || DEFAULT_REPO_URL,
     message: j.message || '',
     checkedAt: j.checkedAt,
     cached: j.cached,
     deployMode: j.deployMode === 'docker' ? 'docker' : j.deployMode === 'source' ? 'source' : undefined,
     canApplyUpdate: j.canApplyUpdate,
-    canAutoRebuild: Boolean(j.canAutoRebuild)
+    canAutoRebuild: Boolean(j.canAutoRebuild),
+    mirror: isMirrorId(j.mirror) ? j.mirror : undefined,
+    mirrorLabel: j.mirrorLabel,
+    preferred: isMirrorId(j.preferred) ? j.preferred : undefined,
+    mirrors: Array.isArray(j.mirrors) && j.mirrors.length ? j.mirrors : FALLBACK_MIRRORS
   }
+}
+
+async function saveUpdateMirror(mirror: UpdateMirrorId): Promise<void> {
+  const { serverUrl, token } = useAuthStore.getState()
+  await apiFetch(serverUrl, '/api/v1/update/mirror', {
+    method: 'POST',
+    token: token || undefined,
+    body: JSON.stringify({ mirror })
+  })
+  localStorage.setItem(LS_MIRROR, mirror)
 }
 
 function sleep(ms: number) {
@@ -155,7 +216,7 @@ export function usePeriodicUpdateCheck(enabled: boolean) {
           message.warning({
             content:
               r.message ||
-              '检查不到更新：请确认运行监控台的服务器能访问 github.com',
+              '检查不到更新：请确认运行监控台的服务器能访问所选更新平台（GitHub / Gitee / GitCode）',
             key: 'hanye-update-unreachable',
             duration: 8
           })
@@ -199,17 +260,26 @@ export function SoftSettingsAbout() {
   const [applying, setApplying] = useState(false)
   const [status, setStatus] = useState<UpdateCheckPayload | null>(null)
   const [localVersion, setLocalVersion] = useState<string>(BUILTIN_VERSION)
+  const [mirror, setMirror] = useState<UpdateMirrorId>(() => {
+    const saved = localStorage.getItem(LS_MIRROR)
+    return isMirrorId(saved) ? saved : 'gitee'
+  })
+  const [mirrors, setMirrors] = useState<UpdateMirrorInfo[]>(FALLBACK_MIRRORS)
 
   const doCheck = useCallback(
-    async (force: boolean) => {
+    async (force: boolean, nextMirror?: UpdateMirrorId) => {
+      const useMirror = nextMirror || mirror
       setChecking(true)
       try {
-        const r = await fetchUpdateCheck(force)
+        const r = await fetchUpdateCheck(force, useMirror)
         setStatus(r)
+        if (r.mirrors?.length) setMirrors(r.mirrors)
+        if (isMirrorId(r.preferred)) setMirror(r.preferred)
+        else if (isMirrorId(r.mirror)) setMirror(r.mirror)
         localStorage.setItem(LS_LAST, String(Date.now()))
         if (!r.reachable) {
           localStorage.removeItem(LS_HINT)
-          message.warning(r.message || '检查不到更新，请确认能否访问 GitHub')
+          message.warning(r.message || '检查不到更新，请确认所选平台网络可达')
         } else if (r.updateAvailable) {
           localStorage.setItem(LS_HINT, '1')
           message.info(r.message)
@@ -227,21 +297,38 @@ export function SoftSettingsAbout() {
           currentVersion: localVersion,
           latestVersion: null,
           latestTag: null,
-          releaseUrl: REPO_URL,
+          releaseUrl: DEFAULT_REPO_URL,
           message:
-            '检查不到更新：服务器无法访问 github.com（git / 网页均可）。浏览器能打开不等于服务器能连通。'
+            '检查不到更新：服务器无法访问所选更新平台。浏览器能打开不等于服务器能连通。',
+          mirrors: FALLBACK_MIRRORS,
+          preferred: useMirror
         })
         message.warning(
           msg.includes('Failed') || msg.includes('fetch')
-            ? '检查不到更新：请确认运行监控台的那台机器能访问 github.com'
+            ? '检查不到更新：请确认运行监控台的那台机器能访问所选平台'
             : msg
         )
       } finally {
         setChecking(false)
       }
     },
-    []
+    [mirror]
   )
+
+  const onMirrorChange = async (v: string | number) => {
+    if (!isMirrorId(v)) return
+    setMirror(v)
+    if (isAdmin) {
+      try {
+        await saveUpdateMirror(v)
+      } catch {
+        /* 本地仍可按所选平台检查 */
+      }
+    } else {
+      localStorage.setItem(LS_MIRROR, v)
+    }
+    await doCheck(true, v)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -257,6 +344,10 @@ export function SoftSettingsAbout() {
     void doCheck(false)
   }, [doCheck, serverUrl, token])
 
+  const activeMirror =
+    mirrors.find((m) => m.id === mirror) || FALLBACK_MIRRORS.find((m) => m.id === mirror) || FALLBACK_MIRRORS[1]!
+  const openUrl = status?.releaseUrl || activeMirror.webUrl
+
   const onUpdateClick = () => {
     const docker = status?.deployMode === 'docker'
     Modal.confirm({
@@ -265,9 +356,9 @@ export function SoftSettingsAbout() {
       content: (
         <div>
           <p style={{ marginBottom: 8 }}>
-            更新由<strong>服务器</strong>执行：优先 git，否则下载 GitHub 源码包。需该机器能访问{' '}
-            <Typography.Link href={REPO_URL} target="_blank" rel="noreferrer">
-              github.com
+            更新由<strong>服务器</strong>从 <strong>{activeMirror.label}</strong> 拉取：优先 git，否则下载源码包。需该机器能访问{' '}
+            <Typography.Link href={activeMirror.webUrl} target="_blank" rel="noreferrer">
+              {activeMirror.hostHint}
             </Typography.Link>
             。
           </p>
@@ -279,7 +370,7 @@ export function SoftSettingsAbout() {
             </p>
           ) : (
             <p style={{ marginBottom: 0, color: 'rgba(0,0,0,.45)' }}>
-              完成后请自行 npm run build 并重启服务。
+              完成后请自行 npm run build 并重启服务（飞牛可用 node.js20/update-hanye.sh）。
             </p>
           )}
         </div>
@@ -290,9 +381,9 @@ export function SoftSettingsAbout() {
         setApplying(true)
         let waitInBackground = false
         try {
-          const probe = await fetchUpdateCheck(true)
+          const probe = await fetchUpdateCheck(true, mirror)
           if (!probe.reachable) {
-            message.error(probe.message || '无法连接 GitHub，请检查网络后再试')
+            message.error(probe.message || `无法连接 ${activeMirror.label}，请检查网络后再试`)
             setStatus(probe)
             return
           }
@@ -306,7 +397,8 @@ export function SoftSettingsAbout() {
           }
           const res = await apiFetch(serverUrl, '/api/v1/update/apply', {
             method: 'POST',
-            token: token || undefined
+            token: token || undefined,
+            body: JSON.stringify({ mirror })
           })
           const j = (await res.json()) as {
             ok?: boolean
@@ -389,7 +481,17 @@ export function SoftSettingsAbout() {
 
           <div>
             <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-              检查更新
+              更新平台（按网络自选）
+            </Typography.Text>
+            <Segmented
+              value={mirror}
+              disabled={checking || applying}
+              onChange={(v) => void onMirrorChange(v)}
+              options={mirrors.map((m) => ({ label: m.label, value: m.id }))}
+              style={{ marginBottom: 12 }}
+            />
+            <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+              检查更新 · 当前 {activeMirror.label}（{activeMirror.hostHint}）
             </Typography.Text>
             {status && !status.reachable ? (
               <Alert
@@ -399,7 +501,7 @@ export function SoftSettingsAbout() {
                 message="检查不到更新"
                 description={
                   status.message ||
-                  '请确认运行监控台的服务器能否访问 github.com（可用 git / 网页）。浏览器能打开不等于服务器能连通。网络恢复后可再点「检查更新」。'
+                  `请确认运行监控台的服务器能否访问 ${activeMirror.hostHint}。浏览器能打开不等于服务器能连通。可切换 GitHub / Gitee / GitCode 后再试。`
                 }
               />
             ) : null}
@@ -439,9 +541,9 @@ export function SoftSettingsAbout() {
               </Button>
               <Button
                 icon={<GithubOutlined />}
-                onClick={() => openExternal(status?.releaseUrl || REPO_URL)}
+                onClick={() => openExternal(openUrl)}
               >
-                打开 GitHub
+                打开 {activeMirror.label}
               </Button>
             </Space>
             {!isAdmin ? (
@@ -454,7 +556,7 @@ export function SoftSettingsAbout() {
                   ? status.canAutoRebuild
                     ? 'Docker 模式：更新会覆盖宿主机源码并自动重建容器。自动每 24 小时检查一次。'
                     : 'Docker 模式：更新会覆盖宿主机源码。当前未挂载 docker.sock，还需手动重新构建镜像。自动每 24 小时检查一次。'
-                  : '自动每 24 小时检查一次。更新会拉取仓库源码（git 或 ZIP），完成后请重新构建并重启。'}
+                  : '自动每 24 小时检查一次。更新会从所选平台拉取源码（git 或 ZIP），完成后请重新构建并重启。'}
               </Typography.Text>
             )}
           </div>

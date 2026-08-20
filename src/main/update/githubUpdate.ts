@@ -23,13 +23,33 @@ import {
 import { join, dirname } from 'path'
 import { tmpdir } from 'os'
 import { unzipSync } from 'fflate'
+import {
+  GITHUB_OWNER,
+  GITHUB_RELEASES_URL,
+  GITHUB_REPO,
+  GITHUB_REPO_URL,
+  getMirror,
+  isUpdateMirrorId,
+  listUpdateMirrors,
+  readPreferredMirror,
+  writePreferredMirror,
+  type UpdateMirror,
+  type UpdateMirrorId
+} from './updateMirrors'
+
+export {
+  GITHUB_OWNER,
+  GITHUB_REPO,
+  GITHUB_REPO_URL,
+  GITHUB_RELEASES_URL,
+  listUpdateMirrors,
+  readPreferredMirror,
+  writePreferredMirror,
+  isUpdateMirrorId,
+  type UpdateMirrorId
+}
 
 const execFileAsync = promisify(execFile)
-
-export const GITHUB_OWNER = 'hanye1993'
-export const GITHUB_REPO = '3DPrinterFleetControlWebInterface'
-export const GITHUB_REPO_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}`
-export const GITHUB_RELEASES_URL = `${GITHUB_REPO_URL}/releases`
 
 const CHECK_CACHE_MS = 24 * 60 * 60 * 1000
 const DOCKER_SOCK = '/var/run/docker.sock'
@@ -53,6 +73,9 @@ export type UpdateCheckResult = {
   canApplyUpdate: boolean
   canAutoRebuild: boolean
   updateRoot: string | null
+  /** 本次检查使用的镜像 */
+  mirror: UpdateMirrorId
+  mirrorLabel: string
 }
 
 export type UpdateApplyResult = {
@@ -66,9 +89,18 @@ export type UpdateApplyResult = {
   deployMode: DeployMode
   needsRebuild?: boolean
   rebuilding?: boolean
+  mirror?: UpdateMirrorId
 }
 
-let lastCheck: { at: number; result: UpdateCheckResult } | null = null
+let lastCheckByMirror: Partial<Record<UpdateMirrorId, { at: number; result: UpdateCheckResult }>> =
+  {}
+
+let prefsDataRoot: string | null = null
+
+/** 由 Node 服务注入 DATA_ROOT，用于读写用户选择的更新平台 */
+export function setUpdatePrefsDataRoot(root: string | null | undefined) {
+  prefsDataRoot = root ? String(root) : null
+}
 
 function normalizeVersion(v: string): string {
   return String(v || '')
@@ -163,9 +195,10 @@ export function resolveUpdateRoot(): string | null {
   return null
 }
 
-async function fetchGithubJson(
+async function fetchMirrorJson(
   url: string,
-  timeoutMs = 5_000
+  mirror: UpdateMirror,
+  timeoutMs = 8_000
 ): Promise<{ ok: true; json: unknown } | { ok: false; message: string }> {
   try {
     const ctrl = new AbortController()
@@ -173,63 +206,60 @@ async function fetchGithubJson(
     const res = await fetch(url, {
       signal: ctrl.signal,
       headers: {
-        Accept: 'application/vnd.github+json',
+        Accept: 'application/json',
         'User-Agent': 'hanye-printer-monitor-update-check'
       }
     })
     clearTimeout(t)
     if (!res.ok) {
-      return { ok: false, message: `GitHub HTTP ${res.status}` }
+      return { ok: false, message: `${mirror.label} HTTP ${res.status}` }
     }
     return { ok: true, json: await res.json() }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     if (/abort|timeout/i.test(msg)) {
-      return { ok: false, message: '连接 GitHub API 超时（api.github.com）' }
+      return { ok: false, message: `连接 ${mirror.hostHint} API 超时` }
     }
-    return { ok: false, message: '无法连接 GitHub API（api.github.com）' }
+    return { ok: false, message: `无法连接 ${mirror.hostHint} API` }
   }
 }
 
-async function latestTagViaGitRemote(): Promise<
-  { ok: true; tag: string } | { ok: false; message: string }
-> {
+async function latestTagViaGitRemote(
+  mirror: UpdateMirror
+): Promise<{ ok: true; tag: string } | { ok: false; message: string }> {
   try {
-    const { stdout } = await execFileAsync(
-      'git',
-      ['ls-remote', '--refs', '--tags', `${GITHUB_REPO_URL}.git`],
-      {
-        timeout: 30_000,
-        maxBuffer: 2 * 1024 * 1024,
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
-      }
-    )
+    const { stdout } = await execFileAsync('git', ['ls-remote', '--refs', '--tags', mirror.gitUrl], {
+      timeout: 30_000,
+      maxBuffer: 2 * 1024 * 1024,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+    })
     const tags: string[] = []
     for (const line of String(stdout || '').split('\n')) {
       const m = line.match(/refs\/tags\/([^\s^{]+)\s*$/)
       if (m?.[1]) tags.push(m[1])
     }
     if (!tags.length) {
-      return { ok: false, message: '已连通 github.com，但仓库尚无 tag' }
+      return { ok: false, message: `已连通 ${mirror.hostHint}，但仓库尚无 tag` }
     }
     tags.sort((a, b) => compareVersions(a, b))
     return { ok: true, tag: tags[tags.length - 1]! }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     if (/abort|timeout|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i.test(msg)) {
-      return { ok: false, message: 'git 访问 github.com 失败（超时/DNS）' }
+      return { ok: false, message: `git 访问 ${mirror.hostHint} 失败（超时/DNS）` }
     }
-    return { ok: false, message: 'git ls-remote 失败，请确认服务器可访问 github.com' }
+    return { ok: false, message: `git ls-remote 失败，请确认服务器可访问 ${mirror.hostHint}` }
   }
 }
 
-async function latestTagViaAtom(): Promise<
-  { ok: true; tag: string; url?: string } | { ok: false; message: string }
-> {
+async function latestTagViaAtom(
+  mirror: UpdateMirror
+): Promise<{ ok: true; tag: string; url?: string } | { ok: false; message: string }> {
+  if (!mirror.atomUrl) return { ok: false, message: `${mirror.label} 无 releases.atom` }
   try {
     const ctrl = new AbortController()
     const t = setTimeout(() => ctrl.abort(), 15_000)
-    const res = await fetch(`${GITHUB_REPO_URL}/releases.atom`, {
+    const res = await fetch(mirror.atomUrl, {
       signal: ctrl.signal,
       headers: { 'User-Agent': 'hanye-printer-monitor-update-check', Accept: 'application/atom+xml' }
     })
@@ -256,6 +286,11 @@ async function latestTagViaAtom(): Promise<
   }
 }
 
+function resolveMirrorId(opts?: { mirror?: string | null }): UpdateMirrorId {
+  if (isUpdateMirrorId(opts?.mirror)) return opts.mirror
+  return readPreferredMirror(prefsDataRoot)
+}
+
 function dockerManualHint(): string {
   return (
     ' 请到 Docker 项目点「重新构建并启动」' +
@@ -266,10 +301,14 @@ function dockerManualHint(): string {
 export async function checkGithubUpdate(opts?: {
   currentVersion?: string
   force?: boolean
+  mirror?: string | null
 }): Promise<UpdateCheckResult> {
+  const mirrorId = resolveMirrorId(opts)
+  const mirror = getMirror(mirrorId)
   const now = Date.now()
-  if (!opts?.force && lastCheck && now - lastCheck.at < CHECK_CACHE_MS) {
-    return { ...lastCheck.result, cached: true }
+  const cached = lastCheckByMirror[mirrorId]
+  if (!opts?.force && cached && now - cached.at < CHECK_CACHE_MS) {
+    return { ...cached.result, cached: true }
   }
 
   const deployMode: DeployMode = isDockerDeploy() ? 'docker' : 'source'
@@ -283,53 +322,54 @@ export async function checkGithubUpdate(opts?: {
   const failNotes: string[] = []
 
   let latestTag: string | null = null
-  let releaseUrl: string | null = GITHUB_RELEASES_URL
+  let releaseUrl: string | null = mirror.releasesUrl
   let releaseNotes: string | null = null
 
-  const release = await fetchGithubJson(
-    `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`
-  )
-  if (release.ok && release.json && typeof release.json === 'object') {
-    const j = release.json as {
-      tag_name?: string
-      html_url?: string
-      body?: string
+  if (mirror.apiReleasesLatest) {
+    const release = await fetchMirrorJson(mirror.apiReleasesLatest, mirror)
+    if (release.ok && release.json && typeof release.json === 'object') {
+      const j = release.json as {
+        tag_name?: string
+        html_url?: string
+        body?: string
+      }
+      if (j.tag_name) {
+        latestTag = j.tag_name
+        releaseUrl = j.html_url || releaseUrl
+        releaseNotes = typeof j.body === 'string' ? j.body.slice(0, 2000) : null
+      }
+    } else if (!release.ok) {
+      failNotes.push(release.message)
     }
-    if (j.tag_name) {
-      latestTag = j.tag_name
-      releaseUrl = j.html_url || releaseUrl
-      releaseNotes = typeof j.body === 'string' ? j.body.slice(0, 2000) : null
-    }
-  } else if (!release.ok) {
-    failNotes.push(release.message)
   }
 
   if (!latestTag) {
-    const tags = await fetchGithubJson(
-      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/tags?per_page=20`
-    )
+    const tags = await fetchMirrorJson(mirror.apiTags, mirror)
     if (tags.ok && tags.json && Array.isArray(tags.json)) {
       const names = tags.json
         .map((x) => (x && typeof x === 'object' ? (x as { name?: string }).name : null))
         .filter((x): x is string => Boolean(x))
       names.sort((a, b) => compareVersions(a, b))
       latestTag = names[names.length - 1] || null
+      if (latestTag) {
+        releaseUrl = `${mirror.webUrl}/releases/tag/${latestTag.startsWith('v') ? latestTag : `v${latestTag}`}`
+      }
     } else if (!tags.ok) {
       failNotes.push(tags.message)
     }
   }
 
   if (!latestTag) {
-    const viaGit = await latestTagViaGitRemote()
+    const viaGit = await latestTagViaGitRemote(mirror)
     if (viaGit.ok) {
       latestTag = viaGit.tag
-      releaseUrl = `${GITHUB_REPO_URL}/releases/tag/${viaGit.tag}`
+      releaseUrl = `${mirror.webUrl}/releases/tag/${viaGit.tag}`
     } else {
       failNotes.push(viaGit.message)
-      const viaAtom = await latestTagViaAtom()
+      const viaAtom = await latestTagViaAtom(mirror)
       if (viaAtom.ok) {
         latestTag = viaAtom.tag
-        releaseUrl = viaAtom.url || `${GITHUB_REPO_URL}/releases`
+        releaseUrl = viaAtom.url || mirror.releasesUrl
       } else {
         failNotes.push(viaAtom.message)
       }
@@ -344,26 +384,28 @@ export async function checkGithubUpdate(opts?: {
       currentVersion,
       latestVersion: null,
       latestTag: null,
-      releaseUrl: GITHUB_REPO_URL,
+      releaseUrl: mirror.webUrl,
       releaseNotes: null,
       checkedAt,
       message:
         failNotes.filter(Boolean).slice(0, 2).join('；') ||
-        '检查不到更新：服务器无法访问 GitHub（api.github.com / git）',
+        `检查不到更新：服务器无法访问 ${mirror.hostHint}`,
       deployMode,
       canApplyUpdate,
       canAutoRebuild,
-      updateRoot
+      updateRoot,
+      mirror: mirrorId,
+      mirrorLabel: mirror.label
     }
-    lastCheck = { at: now, result }
+    lastCheckByMirror[mirrorId] = { at: now, result }
     return result
   }
 
   const latestVersion = normalizeVersion(latestTag)
   const updateAvailable = compareVersions(latestVersion, currentVersion) > 0
   let message = updateAvailable
-    ? `发现新版本 v${latestVersion}（当前 v${currentVersion}）`
-    : `已是最新版本 v${currentVersion}`
+    ? `发现新版本 v${latestVersion}（当前 v${currentVersion}，来源 ${mirror.label}）`
+    : `已是最新版本 v${currentVersion}（${mirror.label}）`
   if (updateAvailable && deployMode === 'docker' && !updateRoot) {
     message +=
       '。当前容器未挂载宿主机源码（UPDATE_GIT_ROOT=/host-repo），无法在设置里一键更新；请更新 compose 后重建，或手动替换源码再构建。'
@@ -391,9 +433,11 @@ export async function checkGithubUpdate(opts?: {
     deployMode,
     canApplyUpdate,
     canAutoRebuild,
-    updateRoot
+    updateRoot,
+    mirror: mirrorId,
+    mirrorLabel: mirror.label
   }
-  lastCheck = { at: now, result }
+  lastCheckByMirror[mirrorId] = { at: now, result }
   return result
 }
 
@@ -713,12 +757,13 @@ async function maybeScheduleDockerRebuild(result: UpdateApplyResult): Promise<Up
   }
 }
 
-async function downloadAndExtractTag(tag: string, destRoot: string): Promise<{ ok: boolean; log: string }> {
+async function downloadAndExtractTag(
+  tag: string,
+  destRoot: string,
+  mirror: UpdateMirror
+): Promise<{ ok: boolean; log: string }> {
   const tagName = tag.startsWith('v') ? tag : `v${tag}`
-  const urls = [
-    `https://codeload.github.com/${GITHUB_OWNER}/${GITHUB_REPO}/zip/refs/tags/${tagName}`,
-    `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/archive/refs/tags/${tagName}.zip`
-  ]
+  const urls = mirror.zipUrls(tagName)
   let buf: Uint8Array | null = null
   const notes: string[] = []
   for (const url of urls) {
@@ -743,7 +788,7 @@ async function downloadAndExtractTag(tag: string, destRoot: string): Promise<{ o
     }
   }
   if (!buf) {
-    return { ok: false, log: notes.join('\n') || '下载源码包失败' }
+    return { ok: false, log: notes.join('\n') || `下载 ${mirror.label} 源码包失败` }
   }
 
   const tmp = mkdtempSync(join(tmpdir(), 'hanye-upd-'))
@@ -798,6 +843,7 @@ function clearGitIndexLock(root: string): void {
 
 async function applyViaGit(root: string, check: UpdateCheckResult): Promise<UpdateApplyResult> {
   const deployMode: DeployMode = isDockerDeploy() ? 'docker' : 'source'
+  const mirror = getMirror(check.mirror || resolveMirrorId())
   const fail = (
     ok: boolean,
     reachable: boolean,
@@ -811,7 +857,8 @@ async function applyViaGit(root: string, check: UpdateCheckResult): Promise<Upda
     latestVersion: check.latestVersion,
     message,
     log,
-    deployMode
+    deployMode,
+    mirror: mirror.id
   })
 
   const zipFallback = async (reason: string): Promise<UpdateApplyResult> => {
@@ -819,7 +866,7 @@ async function applyViaGit(root: string, check: UpdateCheckResult): Promise<Upda
     if (!tag) {
       return fail(false, true, reason, reason)
     }
-    const arch = await downloadAndExtractTag(tag, root)
+    const arch = await downloadAndExtractTag(tag, root, mirror)
     if (!arch.ok) {
       return fail(false, false, `${reason}；源码包覆盖也失败`, `${reason}\n${arch.log}`)
     }
@@ -830,17 +877,18 @@ async function applyViaGit(root: string, check: UpdateCheckResult): Promise<Upda
       updated: true,
       currentVersion: ver,
       latestVersion: check.latestVersion,
-      message: `源码已更新到 v${ver}（源码包覆盖，已保留 data/ 与 docker/.env）。`,
+      message: `源码已更新到 v${ver}（${mirror.label} 源码包，已保留 data/ 与 docker/.env）。`,
       log: `${reason}\n${arch.log}`.trim(),
       deployMode,
-      needsRebuild: deployMode === 'docker'
+      needsRebuild: deployMode === 'docker',
+      mirror: mirror.id
     }
   }
 
   clearGitIndexLock(root)
-  const fetch = await runGit(root, ['fetch', '--tags', 'origin'])
+  const fetch = await runGit(root, ['fetch', '--tags', mirror.gitUrl])
   if (!fetch.ok) {
-    return zipFallback(`git fetch 失败，改用源码包覆盖：${fetch.out}`)
+    return zipFallback(`git fetch（${mirror.label}）失败，改用源码包覆盖：${fetch.out}`)
   }
 
   if (check.latestTag) {
@@ -854,12 +902,13 @@ async function applyViaGit(root: string, check: UpdateCheckResult): Promise<Upda
         updated: true,
         currentVersion: ver,
         latestVersion: check.latestVersion,
-        message: `源码已更新到 ${tag}。${
+        message: `源码已更新到 ${tag}（${mirror.label}）。${
           deployMode === 'docker' ? '' : '请执行 npm run build 并重启服务后生效。'
         }`.trim(),
         log: `${fetch.out}\n${co.out}`.trim(),
         deployMode,
-        needsRebuild: deployMode === 'docker'
+        needsRebuild: deployMode === 'docker',
+        mirror: mirror.id
       }
     }
     return zipFallback(`git checkout ${tag} 无法覆盖本地文件，改用源码包：${co.out}`)
@@ -867,9 +916,9 @@ async function applyViaGit(root: string, check: UpdateCheckResult): Promise<Upda
 
   const ref = await runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD'])
   const branch = ref.ok && ref.out && ref.out !== 'HEAD' ? ref.out.trim() : 'main'
-  let pull = await runGit(root, ['pull', '--ff-only', 'origin', branch])
+  let pull = await runGit(root, ['pull', '--ff-only', mirror.gitUrl, branch])
   if (!pull.ok && branch !== 'main') {
-    pull = await runGit(root, ['pull', '--ff-only', 'origin', 'main'])
+    pull = await runGit(root, ['pull', '--ff-only', mirror.gitUrl, 'main'])
   }
   if (!pull.ok) {
     return zipFallback(`git pull 非快进/无法覆盖，改用源码包：${pull.out}`)
@@ -881,17 +930,19 @@ async function applyViaGit(root: string, check: UpdateCheckResult): Promise<Upda
     updated: true,
     currentVersion: ver,
     latestVersion: check.latestVersion,
-    message: `源码已更新到 v${ver}。${
+    message: `源码已更新到 v${ver}（${mirror.label}）。${
       deployMode === 'docker' ? '' : '请执行 npm run build 并重启服务后生效。'
     }`.trim(),
     log: pull.out,
     deployMode,
-    needsRebuild: deployMode === 'docker'
+    needsRebuild: deployMode === 'docker',
+    mirror: mirror.id
   }
 }
 
 export async function applyGithubSourceUpdate(opts?: {
   currentVersion?: string
+  mirror?: string | null
 }): Promise<UpdateApplyResult> {
   const result = await applyGithubSourceUpdateCore(opts)
   return maybeScheduleDockerRebuild(result)
@@ -899,10 +950,13 @@ export async function applyGithubSourceUpdate(opts?: {
 
 async function applyGithubSourceUpdateCore(opts?: {
   currentVersion?: string
+  mirror?: string | null
 }): Promise<UpdateApplyResult> {
   const deployMode: DeployMode = isDockerDeploy() ? 'docker' : 'source'
+  const mirrorId = resolveMirrorId(opts)
+  const mirror = getMirror(mirrorId)
   const currentVersion = normalizeVersion(opts?.currentVersion || readLocalPackageVersion())
-  const check = await checkGithubUpdate({ currentVersion, force: true })
+  const check = await checkGithubUpdate({ currentVersion, force: true, mirror: mirrorId })
   if (!check.reachable) {
     return {
       ok: false,
@@ -910,8 +964,9 @@ async function applyGithubSourceUpdateCore(opts?: {
       updated: false,
       currentVersion,
       latestVersion: check.latestVersion,
-      message: check.message || '无法连接 GitHub，请确认网络后再试',
-      deployMode
+      message: check.message || `无法连接 ${mirror.hostHint}，请确认网络后再试`,
+      deployMode,
+      mirror: mirrorId
     }
   }
 
@@ -957,11 +1012,12 @@ async function applyGithubSourceUpdateCore(opts?: {
       currentVersion,
       latestVersion: check.latestVersion,
       message: '没有可用的版本标签，无法下载源码包',
-      deployMode
+      deployMode,
+      mirror: mirrorId
     }
   }
 
-  const arch = await downloadAndExtractTag(tag, root)
+  const arch = await downloadAndExtractTag(tag, root, mirror)
   if (!arch.ok) {
     return {
       ok: false,
@@ -971,9 +1027,10 @@ async function applyGithubSourceUpdateCore(opts?: {
       latestVersion: check.latestVersion,
       message: /无法覆盖|EACCES|EPERM|EROFS/.test(arch.log)
         ? arch.log
-        : '下载/解压源码包失败：请确认服务器能访问 github.com / codeload.github.com',
+        : `下载/解压源码包失败：请确认服务器能访问 ${mirror.hostHint}`,
       log: arch.log,
-      deployMode
+      deployMode,
+      mirror: mirrorId
     }
   }
 
@@ -984,9 +1041,10 @@ async function applyGithubSourceUpdateCore(opts?: {
     updated: true,
     currentVersion: ver,
     latestVersion: check.latestVersion,
-    message: `源码已更新到 v${ver}（ZIP 解压，已保留 data/ 与 docker/.env）。`,
+    message: `源码已更新到 v${ver}（${mirror.label} ZIP，已保留 data/ 与 docker/.env）。`,
     log: arch.log,
     deployMode,
-    needsRebuild: deployMode === 'docker'
+    needsRebuild: deployMode === 'docker',
+    mirror: mirrorId
   }
 }
