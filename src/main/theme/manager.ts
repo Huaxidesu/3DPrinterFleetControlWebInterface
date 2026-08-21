@@ -111,6 +111,13 @@ export class ThemeManager {
     if (active) this.syncTemplateEngine(active.pack.identifier)
   }
 
+  /** Reload themes-state.json after backup import (no re-register hooks). */
+  reloadFromDisk(): void {
+    this.loadState()
+    const active = this.getActive()
+    if (active) this.syncTemplateEngine(active.pack.identifier)
+  }
+
   private buildServerApi(identifier: string): ThemeServerApi {
     const id = safeId(identifier)
     return {

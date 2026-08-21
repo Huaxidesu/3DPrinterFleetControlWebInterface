@@ -140,6 +140,53 @@ function isAdminAuth(auth: AuthContext | null | undefined): boolean {
   return false
 }
 
+/** Create/update/delete zones & cameras — not every control-mode user. */
+function canEditZones(auth: AuthContext | null | undefined): boolean {
+  if (!auth || auth.kind === 'local' || auth.kind === 'apiKey') return true
+  if (isAdminAuth(auth)) return true
+  if (auth.kind === 'user') {
+    const perms = effectivePermissions(auth.user)
+    return hasPerm(perms, 'nav.monitor') && hasPerm(perms, 'device.edit')
+  }
+  return false
+}
+
+function assertCanEditZones(
+  auth: AuthContext | null | undefined,
+  res: ServerResponse,
+  sendJson: JsonSend
+): boolean {
+  if (canEditZones(auth)) return true
+  sendJson(res, 403, {
+    ok: false,
+    message: '无权修改区域监控（需要管理员，或同时具备「监控」与「设备编辑」权限）'
+  })
+  return false
+}
+
+/** Binding a camera to a device requires view on that device (or admin). */
+function assertCanBindDeviceId(
+  auth: AuthContext | null | undefined,
+  deviceId: string | undefined,
+  res: ServerResponse,
+  sendJson: JsonSend
+): boolean {
+  const id = typeof deviceId === 'string' ? deviceId.trim() : ''
+  if (!id) {
+    // Unbound cams are admin-only visibility — only admin may create them
+    if (isAdminAuth(auth) || !auth || auth.kind === 'local' || auth.kind === 'apiKey') return true
+    sendJson(res, 403, {
+      ok: false,
+      message: '未绑定设备的摄像头仅管理员可添加（绑定设备后按设备权限可见）'
+    })
+    return false
+  }
+  if (!auth || auth.kind === 'local' || auth.kind === 'apiKey' || isAdminAuth(auth)) return true
+  if (auth.kind === 'user' && canDeviceAction(auth.user, id, 'view')) return true
+  sendJson(res, 403, { ok: false, message: '无权绑定该设备到摄像头' })
+  return false
+}
+
 /** Device ids bound to a zone (camera.deviceId / pluginData / server-api URL). */
 function zoneBoundDeviceIds(zone: MonitorZoneRow): string[] {
   const ids = new Set<string>()
@@ -498,6 +545,7 @@ export async function handleMonitorApi(opts: {
 
   if (method === 'POST' && path === '/api/v1/monitor/zones') {
     if (!requireControl()) return true
+    if (!assertCanEditZones(auth, res, sendJson)) return true
     const raw = await readBody(req)
     let body: Record<string, unknown> = {}
     try {
@@ -547,6 +595,10 @@ export async function handleMonitorApi(opts: {
 
   if (method === 'PUT' && path === '/api/v1/monitor/zones') {
     if (!requireControl()) return true
+    if (!isAdminAuth(auth)) {
+      sendJson(res, 403, { ok: false, message: '整表覆盖区域配置仅管理员可操作' })
+      return true
+    }
     const raw = await readBody(req)
     let body: unknown
     try {
@@ -582,12 +634,17 @@ export async function handleMonitorApi(opts: {
         sendJson(res, 404, { ok: false, message: 'Zone not found' })
         return true
       }
+      if (!canViewZone(auth, zones[idx])) {
+        sendJson(res, 403, { ok: false, message: '无权查看该区域' })
+        return true
+      }
       sendJson(res, 200, { ok: true, zone: zones[idx] })
       return true
     }
 
     if (method === 'PATCH' || method === 'PUT') {
       if (!requireControl()) return true
+      if (!assertCanEditZones(auth, res, sendJson)) return true
       if (idx < 0) {
         sendJson(res, 404, { ok: false, message: 'Zone not found' })
         return true
@@ -631,6 +688,11 @@ export async function handleMonitorApi(opts: {
         method === 'PUT' && Array.isArray(body.cameras)
           ? (body.cameras as ZoneCameraRow[])
           : zones[idx].cameras
+      if (method === 'PUT' && Array.isArray(body.cameras)) {
+        for (const c of cameras) {
+          if (!assertCanBindDeviceId(auth, c?.deviceId, res, sendJson)) return true
+        }
+      }
       zones[idx] = {
         ...zones[idx],
         name,
@@ -645,6 +707,7 @@ export async function handleMonitorApi(opts: {
 
     if (method === 'DELETE') {
       if (!requireControl()) return true
+      if (!assertCanEditZones(auth, res, sendJson)) return true
       if (idx < 0) {
         sendJson(res, 404, { ok: false, message: 'Zone not found' })
         return true
@@ -676,6 +739,7 @@ export async function handleMonitorApi(opts: {
   const zoneCams = path.match(/^\/api\/v1\/monitor\/zones\/([^/]+)\/cameras$/)
   if (method === 'POST' && zoneCams) {
     if (!requireControl()) return true
+    if (!assertCanEditZones(auth, res, sendJson)) return true
     const zoneId = decodeURIComponent(zoneCams[1])
     const file = deps.getMonitorZonesPath()
     const zones = readZones(file)
@@ -719,6 +783,7 @@ export async function handleMonitorApi(opts: {
       sendJson(res, 400, { ok: false, message: created.error })
       return true
     }
+    if (!assertCanBindDeviceId(auth, created.cam.deviceId, res, sendJson)) return true
     zones[idx] = {
       ...zones[idx],
       cameras: [...zones[idx].cameras, created.cam],
@@ -748,12 +813,17 @@ export async function handleMonitorApi(opts: {
         sendJson(res, 404, { ok: false, message: 'Camera not found' })
         return true
       }
+      if (!canViewZone(auth, zones[zIdx])) {
+        sendJson(res, 403, { ok: false, message: '无权查看该区域摄像头' })
+        return true
+      }
       sendJson(res, 200, { ok: true, camera: zones[zIdx].cameras[cIdx] })
       return true
     }
 
     if (method === 'PATCH' || method === 'PUT') {
       if (!requireControl()) return true
+      if (!assertCanEditZones(auth, res, sendJson)) return true
       if (cIdx < 0) {
         sendJson(res, 404, { ok: false, message: 'Camera not found' })
         return true
@@ -799,6 +869,7 @@ export async function handleMonitorApi(opts: {
         sendJson(res, 400, { ok: false, message: next.error })
         return true
       }
+      if (!assertCanBindDeviceId(auth, next.cam.deviceId, res, sendJson)) return true
       zones[zIdx].cameras[cIdx] = next.cam
       zones[zIdx] = { ...zones[zIdx], updatedAt: new Date().toISOString() }
       writeZones(file, zones)
@@ -809,6 +880,7 @@ export async function handleMonitorApi(opts: {
 
     if (method === 'DELETE') {
       if (!requireControl()) return true
+      if (!assertCanEditZones(auth, res, sendJson)) return true
       if (cIdx < 0) {
         sendJson(res, 404, { ok: false, message: 'Camera not found' })
         return true

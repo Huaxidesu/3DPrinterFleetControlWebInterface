@@ -155,7 +155,7 @@ export function BatchPrintModal({
           description={
             isResin
               ? '与 FDM 隔离：仅操作光固化设备。切片上传对接开发中；批量暂停/继续/停止已可用。'
-              : '与光固化隔离：仅操作 FDM 设备。批量导入打印要求同品牌（机型可不同；拓竹需局域网）。'
+              : '与光固化隔离：仅操作 FDM 设备。批量导入打印要求同品牌（机型可不同；拓竹需局域网 IP，纯云端不可传文件）。'
           }
         />
         <PluginSlot name="device.batch.modal.alert.after" context={slotCtx} />
@@ -182,7 +182,13 @@ export function BatchPrintModal({
                 </Typography.Text>
                 {!canBatchPrint(d) ? (
                   <Typography.Text type="warning" style={{ fontSize: 12 }}>
-                    {isResin ? '切片上传开发中' : '不支持批量上传'}
+                    {isResin
+                      ? '切片上传开发中'
+                      : d.brand === 'bambu' && !String(d.bambuHost || d.host || '').trim()
+                        ? '拓竹需局域网 IP（纯云端不可批量传文件）'
+                        : d.connectionMode === 'cloud'
+                          ? '云端模式不支持批量上传'
+                          : '不支持批量上传'}
                   </Typography.Text>
                 ) : null}
               </Space>

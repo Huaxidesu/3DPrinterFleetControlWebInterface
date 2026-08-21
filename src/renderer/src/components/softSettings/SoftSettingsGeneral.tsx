@@ -355,6 +355,28 @@ export function SoftSettingsGeneral() {
             }}
           />
         </div>
+        <div className="settings-row" style={{ marginBottom: 12 }}>
+          <div className="settings-row-label">
+            <Typography.Text strong>局域网扫描网段</Typography.Text>
+            <Typography.Text type="secondary">
+              额外要扫的 /24 前缀，逗号分隔（如 192.168.1,192.168.10）。与环境变量 LAN_SCAN_SUBNETS、本机网卡合并，最多 8 段
+            </Typography.Text>
+          </div>
+          <Input
+            style={{ maxWidth: 360 }}
+            placeholder="192.168.1,192.168.10"
+            defaultValue={settings.lanScanSubnets}
+            key={settings.lanScanSubnets}
+            onBlur={(e) => {
+              void (async () => {
+                const v = e.target.value.trim().slice(0, 500)
+                if (v === settings.lanScanSubnets) return
+                await save({ lanScanSubnets: v })
+                message.success('已保存')
+              })()
+            }}
+          />
+        </div>
         {!isWeb ? (
           <>
         <div className="settings-row" style={{ marginBottom: 12 }}>

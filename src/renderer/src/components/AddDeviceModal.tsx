@@ -162,6 +162,10 @@ export function AddDeviceModal({
   const [crealityCloudDevices, setCrealityCloudDevices] = useState<CrealityCloudDevice[]>([])
   const [anycubicCloudDevices, setAnycubicCloudDevices] = useState<AnycubicCloudDevice[]>([])
   const [selectedDevIds, setSelectedDevIds] = useState<string[]>([])
+  /** Per cloud device LAN hybrid fields (Bambu multi-add) */
+  const [hybridLanByDev, setHybridLanByDev] = useState<
+    Record<string, { host: string; code: string }>
+  >({})
   const [loggingIn, setLoggingIn] = useState(false)
   const [sendingCode, setSendingCode] = useState(false)
 
@@ -284,6 +288,7 @@ export function AddDeviceModal({
     setCrealityCloudDevices([])
     setAnycubicCloudDevices([])
     setSelectedDevIds([])
+    setHybridLanByDev({})
     setLanHits([])
     setScanProgress(null)
     setScanning(false)
@@ -682,17 +687,24 @@ export function AddDeviceModal({
       await window.electronAPI?.secrets.set(tokenKey, cloudToken)
     }
 
-    const hybridHost = String(values.bambuHost || '')
+    const defaultHost = String(values.bambuHost || '')
       .trim()
       .replace(/^https?:\/\//, '')
       .split('/')[0]
       .split(':')[0]
-    const hybridLanCode = String(values.bambuLanAccessCode || '').trim()
+    const defaultLanCode = String(values.bambuLanAccessCode || '').trim()
 
     let added = 0
     for (const devId of selectedDevIds) {
       const cloudDev = cloudDevices.find((d) => d.dev_id === devId)
       if (!cloudDev) continue
+      const per = hybridLanByDev[devId]
+      const hybridHost = String(per?.host || defaultHost || '')
+        .trim()
+        .replace(/^https?:\/\//, '')
+        .split('/')[0]
+        .split(':')[0]
+      const hybridLanCode = String(per?.code || defaultLanCode || '').trim()
       const id = newId()
       const device: DeviceConfig & { bambuLanAccessCode?: string } = {
         id,
@@ -1331,8 +1343,8 @@ export function AddDeviceModal({
                     type="warning"
                     showIcon
                     style={{ marginBottom: 16 }}
-                    message="创想云能力有限"
-                    description="云端主要用于状态与有限控制；传文件/深控请用局域网。Token 与 UID 可从浏览器登录 www.crealitycloud.cn（或 .com）后，在开发者工具 Application / Local Storage 中查找 __CXY_TOKEN_ 与 __CXY_UID_。"
+                    message="创想云：仅状态与有限控制"
+                    description="云端主要用于状态同步与少量控制；传文件、批量打印、深控请改用局域网（Moonraker / 本机 IP）添加。Token 与 UID 可从浏览器登录 www.crealitycloud.cn（或 .com）后，在开发者工具 Application / Local Storage 中查找 __CXY_TOKEN_ 与 __CXY_UID_。"
                   />
                   <Form.Item
                     name="crealityRegion"
@@ -1748,23 +1760,23 @@ export function AddDeviceModal({
                           开发者模式」。
                         </div>
                         <div style={{ marginTop: 8 }}>
-                          下方可<strong>可选</strong>填写局域网 IP 与访问码：云端仍管状态，局域网用于
-                          FTPS 传文件与舱内摄像头（需开启「仅局域网模式」和「开发者模式」）。
+                          可按台填写局域网 IP/访问码（多选时下方表格逐台填）；也可先填默认值再按台覆盖。云端管状态，局域网用于
+                          FTPS 与舱内摄像头（需「仅局域网 + 开发者模式」）。
                         </div>
                       </div>
                     }
                   />
                   <Form.Item
                     name="bambuHost"
-                    label="局域网 IP（可选，混合）"
-                    extra="同一网段打印机 IP；多台一起添加时共用此 IP/访问码，也可添加后在设备详情里分别改"
+                    label="默认局域网 IP（可选）"
+                    extra="多台未单独填写时使用此默认值；推荐在下方按台填写"
                   >
                     <Input placeholder="例如 192.168.1.100" />
                   </Form.Item>
                   <Form.Item
                     name="bambuLanAccessCode"
-                    label="局域网访问码（可选）"
-                    extra="打印机屏幕上的 Access Code，用于摄像头与 FTPS"
+                    label="默认局域网访问码（可选）"
+                    extra="多台未单独填写时使用此默认值"
                   >
                     <Input.Password placeholder="留空则仅云端状态" />
                   </Form.Item>
@@ -1909,6 +1921,75 @@ export function AddDeviceModal({
                       >
                         全选
                       </Checkbox>
+                      {selectedDevIds.length > 0 ? (
+                        <div style={{ marginTop: 16 }}>
+                          <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
+                            按台填写局域网（混合模式）
+                          </Typography.Text>
+                          <Typography.Text
+                            type="secondary"
+                            style={{ display: 'block', marginBottom: 8, fontSize: 12 }}
+                          >
+                            有 IP 的设备才能批量传文件/舱内摄像头；留空则仅云端状态
+                          </Typography.Text>
+                          <Table
+                            size="small"
+                            pagination={false}
+                            rowKey="dev_id"
+                            dataSource={cloudDevices.filter((d) => selectedDevIds.includes(d.dev_id))}
+                            columns={[
+                              {
+                                title: '设备',
+                                render: (_: unknown, r: BambuCloudDevice) =>
+                                  r.name || r.dev_product_name || r.dev_id
+                              },
+                              {
+                                title: '局域网 IP',
+                                width: 160,
+                                render: (_: unknown, r: BambuCloudDevice) => (
+                                  <Input
+                                    size="small"
+                                    placeholder="192.168.x.x"
+                                    value={hybridLanByDev[r.dev_id]?.host || ''}
+                                    onChange={(e) => {
+                                      const host = e.target.value
+                                      setHybridLanByDev((prev) => ({
+                                        ...prev,
+                                        [r.dev_id]: {
+                                          host,
+                                          code: prev[r.dev_id]?.code || ''
+                                        }
+                                      }))
+                                    }}
+                                  />
+                                )
+                              },
+                              {
+                                title: '访问码',
+                                width: 140,
+                                render: (_: unknown, r: BambuCloudDevice) => (
+                                  <Input.Password
+                                    size="small"
+                                    placeholder="Access Code"
+                                    value={hybridLanByDev[r.dev_id]?.code || ''}
+                                    onChange={(e) => {
+                                      const code = e.target.value
+                                      setHybridLanByDev((prev) => ({
+                                        ...prev,
+                                        [r.dev_id]: {
+                                          host: prev[r.dev_id]?.host || '',
+                                          code
+                                        }
+                                      }))
+                                    }}
+                                  />
+                                )
+                              }
+                            ]}
+                            scroll={{ y: 200 }}
+                          />
+                        </div>
+                      ) : null}
                     </>
                   ) : null}
                 </>

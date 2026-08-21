@@ -272,13 +272,15 @@ async function bootstrap(): Promise<void> {
     const { getAllSecretsMap } = await import('./storage/secrets')
     Object.assign(secretsCache, await getAllSecretsMap())
   } else {
+    const { loadFileSecrets } = await import('./storage/fileSecrets')
     const secretsPath = join(DATA_ROOT, 'secrets.json')
-    if (existsSync(secretsPath)) {
-      try {
-        Object.assign(secretsCache, JSON.parse(readFileSync(secretsPath, 'utf8')))
-      } catch {
-        /* ignore */
-      }
+    Object.assign(secretsCache, loadFileSecrets(secretsPath))
+    // Migrate legacy plaintext → encrypted on boot
+    try {
+      const { saveFileSecrets } = await import('./storage/fileSecrets')
+      saveFileSecrets(secretsPath, secretsCache)
+    } catch (e) {
+      console.error('[secrets] migrate encrypt failed', e)
     }
   }
 
@@ -299,7 +301,23 @@ async function bootstrap(): Promise<void> {
       return
     }
     const secretsPath = join(DATA_ROOT, 'secrets.json')
-    writeFileSync(secretsPath, JSON.stringify(secretsCache, null, 2), 'utf8')
+    void import('./storage/fileSecrets')
+      .then(({ saveFileSecrets }) => saveFileSecrets(secretsPath, secretsCache))
+      .catch((e) => console.error('[secret] file save failed', e))
+  }
+
+  const deleteCachedSecret = (key: string): void => {
+    delete secretsCache[key]
+    if (USE_MYSQL) {
+      void import('./storage/secrets')
+        .then(({ deleteSecret }) => deleteSecret(key))
+        .catch((e) => console.error('[secret] delete failed', e))
+      return
+    }
+    const secretsPath = join(DATA_ROOT, 'secrets.json')
+    void import('./storage/fileSecrets')
+      .then(({ saveFileSecrets }) => saveFileSecrets(secretsPath, secretsCache))
+      .catch((e) => console.error('[secret] file save failed', e))
   }
 
   const deviceHostEngine = new DeviceHost({
@@ -605,7 +623,7 @@ async function bootstrap(): Promise<void> {
     onDevicesChanged: () => {
       void deviceHostEngine.reconnectAll().catch((e) => console.error('[devices] reconnect failed', e))
     },
-    onBackupImported: () => {
+    onBackupImported: async () => {
       try {
         appSettings = loadAppSettings()
         setMonitorSnapshotConcurrency(appSettings.monitorSnapshotConcurrency ?? 6)
@@ -617,6 +635,18 @@ async function bootstrap(): Promise<void> {
         userStore.forceReloadFromDisk()
       } catch (e) {
         console.error('[backup] reload users failed', e)
+      }
+      try {
+        await pluginManager.reloadAll()
+        console.log('[backup] plugins reloaded')
+      } catch (e) {
+        console.error('[backup] reload plugins failed', e)
+      }
+      try {
+        themeManager.reloadFromDisk()
+        console.log('[backup] themes reloaded')
+      } catch (e) {
+        console.error('[backup] reload themes failed', e)
       }
       void deviceHostEngine.reconnectAll().catch((e) => console.error('[devices] reconnect failed', e))
     },
@@ -747,20 +777,25 @@ async function bootstrap(): Promise<void> {
       storeSecret(secretKey, value)
     },
     deleteDeviceSecret: (secretKey) => {
-      delete secretsCache[secretKey]
-      if (USE_MYSQL) {
-        void deleteSecret(secretKey).catch((e) => console.error('[secret] delete failed', e))
-        return
-      }
-      const secretsPath = join(DATA_ROOT, 'secrets.json')
-      writeFileSync(secretsPath, JSON.stringify(secretsCache, null, 2), 'utf8')
+      deleteCachedSecret(secretKey)
     },
     startLanDiscover: async (opts) => {
       if (lanDiscoverRunning) return { ok: false, message: 'LAN discover already running' }
       lanDiscoverRunning = true
       lanDiscoverState = { phase: 'scanning', scanned: 0, total: 0, found: 0, hits: [], message: 'Scanning…' }
+      const subnetRaw = String(appSettings.lanScanSubnets || '').trim()
+      const subnetPrefixes = subnetRaw
+        ? subnetRaw
+            .split(/[,;\s]+/)
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : undefined
       void scanLanPrinters(
-        { brands: opts?.brands as LanDiscoverOpts['brands'] },
+        {
+          brands: opts?.brands as LanDiscoverOpts['brands'],
+          subnetPrefixes,
+          maxSubnets: 8
+        },
         (progress) => {
           lanDiscoverState = {
             ...lanDiscoverState,

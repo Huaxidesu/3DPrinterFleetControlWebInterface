@@ -37,6 +37,10 @@ export type LanDiscoverOpts = {
   brands?: LanDiscoverBrand[]
   concurrency?: number
   timeoutMs?: number
+  /** Extra /24 prefixes e.g. ["192.168.1","10.0.0"] (settings or env) */
+  subnetPrefixes?: string[]
+  /** Max /24 ranges to scan (default 8) */
+  maxSubnets?: number
 }
 
 type ProbeDef = {
@@ -278,7 +282,7 @@ function prefixesFromEnv(): string[] {
   return out
 }
 
-function collectSubnets(): string[][] {
+function collectSubnets(extraPrefixes?: string[], maxSubnets = 8): string[][] {
   const ranges: string[][] = []
   const seen = new Set<string>()
 
@@ -288,10 +292,26 @@ function collectSubnets(): string[][] {
     ranges.push(hostsForPrefix(prefix))
   }
 
-  // 1) 显式指定（NAS / Docker 推荐）：扫你家局域网而不是容器网段
+  const normalizePrefix = (s: string): string | null => {
+    const t = s.trim()
+    if (!t) return null
+    const cidr = t.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/)
+    if (cidr) return `${cidr[1]}.${cidr[2]}.${cidr[3]}`
+    const m = t.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:\.\d{1,3})?$/)
+    if (!m) return null
+    return `${m[1]}.${m[2]}.${m[3]}`
+  }
+
+  // 1) Settings / caller prefixes
+  for (const raw of extraPrefixes || []) {
+    const p = normalizePrefix(raw)
+    if (p && isPrivateIpv4(`${p}.1`)) pushPrefix(p)
+  }
+
+  // 2) Env LAN_SCAN_SUBNETS
   for (const p of prefixesFromEnv()) pushPrefix(p)
 
-  // 2) 自动从网卡收集
+  // 3) Auto from NICs
   const preferred: string[] = []
   const containerish: string[] = []
   const nets = networkInterfaces()
@@ -309,13 +329,12 @@ function collectSubnets(): string[][] {
   }
 
   for (const p of preferred) pushPrefix(p)
-  // 仅当没有任何家用网段时，才退回扫容器网（几乎找不到打印机）
   if (!ranges.length) {
     for (const p of containerish) pushPrefix(p)
   }
 
-  // Cap at 3 /24s to keep scan time reasonable
-  return ranges.slice(0, 3)
+  const cap = Math.max(1, Math.min(16, Math.floor(Number(maxSubnets)) || 8))
+  return ranges.slice(0, cap)
 }
 
 async function mapPool<T, R>(
@@ -416,7 +435,7 @@ export async function scanLanPrinters(
   const brandSet = opts.brands?.length ? new Set(opts.brands) : null
 
   try {
-    const subnets = collectSubnets()
+    const subnets = collectSubnets(opts.subnetPrefixes, opts.maxSubnets ?? 8)
     if (!subnets.length) {
       onProgress?.({ phase: 'error', scanned: 0, total: 0, found: 0, message: '未找到可用局域网网卡' })
       return { ok: false, hits: [], message: '未找到可用局域网网卡（需连接私有网段）' }

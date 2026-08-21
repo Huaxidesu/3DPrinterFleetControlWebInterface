@@ -199,6 +199,11 @@ export type AppSettings = {
   alertNotify?: AlertNotifySettings
   /** 监控墙快照全局并发（1–32，默认 6） */
   monitorSnapshotConcurrency?: number
+  /**
+   * Extra LAN /24 prefixes for printer discover, e.g. "192.168.1,192.168.10"
+   * Merged with env LAN_SCAN_SUBNETS and auto NICs (up to 8).
+   */
+  lanScanSubnets?: string
 }
 
 /** Clamp and return device refresh interval in seconds */
@@ -461,7 +466,8 @@ export function defaultSettings(): AppSettings {
     sso: defaultSsoSettings(),
     aiVision: defaultAiVisionSettings(),
     alertNotify: defaultAlertNotifySettings(),
-    monitorSnapshotConcurrency: 6
+    monitorSnapshotConcurrency: 6,
+    lanScanSubnets: ''
   }
 }
 
@@ -556,7 +562,11 @@ export function normalizeSettings(raw: unknown): AppSettings {
     sso: normalizeSsoSettings(o.sso),
     aiVision: normalizeAiVisionSettings(o.aiVision),
     alertNotify: normalizeAlertNotifySettings(o.alertNotify),
-    monitorSnapshotConcurrency: normalizeMonitorSnapshotConcurrency(o.monitorSnapshotConcurrency)
+    monitorSnapshotConcurrency: normalizeMonitorSnapshotConcurrency(o.monitorSnapshotConcurrency),
+    lanScanSubnets:
+      typeof o.lanScanSubnets === 'string'
+        ? o.lanScanSubnets.trim().slice(0, 500)
+        : base.lanScanSubnets
   }
 }
 
@@ -1528,7 +1538,7 @@ export class ApiServer {
           this.deps.onFilamentChanged?.()
           this.deps.onMonitorZonesChanged?.()
           this.deps.onDevicesChanged?.()
-          this.deps.onBackupImported?.()
+          await this.deps.onBackupImported?.()
         }
       })
       if (backupHandled) return

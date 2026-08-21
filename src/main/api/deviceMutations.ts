@@ -381,6 +381,7 @@ export const SETTINGS_PATCH_KEYS = [
   'amsAutoDeduct',
   'deviceRefreshSec',
   'monitorSnapshotConcurrency',
+  'lanScanSubnets',
   'webhookEnabled',
   'webhookUrl',
   'openAtLogin',

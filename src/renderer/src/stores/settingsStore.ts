@@ -89,6 +89,8 @@ export type AppSettings = {
   alertNotify: AlertNotifySettings
   /** 监控墙快照全局并发 1–32 */
   monitorSnapshotConcurrency: number
+  /** 额外局域网扫描网段，如 192.168.1,192.168.10 */
+  lanScanSubnets: string
 }
 
 export function normalizeDeviceRefreshSec(v: unknown): number {
@@ -186,7 +188,8 @@ const defaults: AppSettings = {
   sso: defaultSsoSettings(),
   aiVision: defaultAiVisionSettings(),
   alertNotify: defaultAlertNotifySettings(),
-  monitorSnapshotConcurrency: 6
+  monitorSnapshotConcurrency: 6,
+  lanScanSubnets: ''
 }
 
 function normalizeUiTheme(v: unknown): UiThemeId {
@@ -368,6 +371,7 @@ function mapSettings(raw: Record<string, unknown> | Partial<AppSettings> | null 
       if (!Number.isFinite(n)) return 6
       return Math.max(1, Math.min(32, n))
     })(),
+    lanScanSubnets: typeof r.lanScanSubnets === 'string' ? r.lanScanSubnets.trim().slice(0, 500) : '',
     openAtLogin: Boolean(r.openAtLogin),
     minimizeToTray: r.minimizeToTray !== false,
     webhookEnabled: Boolean(r.webhookEnabled),
@@ -534,6 +538,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         amsAutoDeduct: next.amsAutoDeduct,
         deviceRefreshSec: next.deviceRefreshSec,
         monitorSnapshotConcurrency: next.monitorSnapshotConcurrency,
+        lanScanSubnets: next.lanScanSubnets,
         uiTheme: next.uiTheme,
         uiThemePack: next.uiThemePack,
         uiBgMode: next.uiBgMode,
@@ -581,6 +586,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           'amsAutoDeduct',
           'deviceRefreshSec',
           'monitorSnapshotConcurrency',
+          'lanScanSubnets',
           'webhookEnabled',
           'webhookUrl',
           'openAtLogin',
