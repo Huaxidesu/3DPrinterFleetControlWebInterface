@@ -68,7 +68,7 @@ export class ElegooAdapter implements PrinterAdapter {
       host: this.host
     })
     if (!res?.ok) {
-      const message = res?.message || '爱乐库连接失败'
+      const message = res?.message || '爱乐酷连接失败'
       this.emit({ ...emptyStatus(this.deviceId, 'error'), message })
       throw new Error(message)
     }
@@ -102,11 +102,11 @@ export class ElegooAdapter implements PrinterAdapter {
   }
 
   async uploadFile(_file: File): Promise<void> {
-    throw new Error('爱乐高暂不支持监控台传文件；请用官方 App 或后续插件扩展')
+    throw new Error('爱乐酷暂不支持监控台传文件；请用官方 App 或后续插件扩展')
   }
 
   async downloadFile(_remotePath: string): Promise<ArrayBuffer> {
-    throw new Error('爱乐高文件下载暂未接入')
+    throw new Error('爱乐酷文件下载暂未接入')
   }
 
   async getCameras() {
@@ -121,7 +121,7 @@ export class ElegooAdapter implements PrinterAdapter {
   }
 
   async printFile(_remotePath: string): Promise<void> {
-    throw new Error('爱乐高暂不支持监控台远程开打；请用官方 App')
+    throw new Error('爱乐酷暂不支持监控台远程开打；请用官方 App')
   }
 
   private emit(status: PrinterLiveStatus): void {

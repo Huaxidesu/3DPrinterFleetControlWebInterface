@@ -14,7 +14,7 @@
 
 - Bambu：P1S / P1P / A1 / A1 mini / X1C / X1E / P2S
 - 创想：K1 / K1 Max / K1C / Ender-3 V3 / K2
-- 爱乐库：Neptune 4 / Mars 5
+- 爱乐酷：Neptune 4 / Mars 5
 - 纵维：Kobra 2 / Kobra 3
 - Snapmaker：Artisan / J1
 - 闪铸：Adventurer 5M

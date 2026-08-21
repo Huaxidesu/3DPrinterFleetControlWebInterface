@@ -185,7 +185,8 @@ export function CameraPanel({
             </Typography.Text>
             <div className="camera-frame camera-frame-placeholder">
               <Typography.Text type="secondary">
-                拓竹机舱摄像头需要局域网 IP 与访问码（局域网模式添加）。云端设备不支持机舱画面。X1 系列暂不支持。
+                拓竹舱内画面需要局域网 IP 与访问码。云端设备可在详情里补填后混合使用；P1/A1 走
+                :6000，X1 走 RTSP :322（服务器需安装 ffmpeg，可在「关于」检测）。
               </Typography.Text>
             </div>
           </div>
@@ -226,9 +227,7 @@ export function CameraPanel({
                 {phase === 'fail'
                   ? errHint ||
                     (bambuFail
-                      ? /ffmpeg|rtsp|:322/i.test(errHint)
-                        ? 'X1 舱内摄像头需服务器安装 ffmpeg，并确认局域网 IP + 访问码、RTSP :322 可达'
-                        : '拓竹摄像头无法连接：需局域网 IP + 访问码，机舱摄像头已开（P1/A1 走 :6000；X1 走 RTSP :322 且需 ffmpeg）'
+                      ? '拓竹摄像头无法连接：需局域网 IP + 访问码，机舱摄像头已开（P1/A1 走 :6000；X1 走 RTSP :322，服务器需安装 ffmpeg，可在「软件设置 → 关于」检测）'
                       : '摄像头无法连接（请确认已开启摄像头，或在 Fluidd 中查看摄像头地址）')
                   : '正在拉取画面…'}
               </Typography.Text>

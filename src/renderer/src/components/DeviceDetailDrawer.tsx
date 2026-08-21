@@ -32,7 +32,6 @@ import { deviceTech, useDeviceStore } from '../stores/deviceStore'
 import { deviceStatusLabel } from '../utils/statusLabel'
 import { formatEtaFinish, formatRemain } from '../utils/timeFormat'
 import { AmsSlotChip } from './AmsSlotChip'
-import { BambuDevModeHelp } from './BambuDevModeHelp'
 import { CameraPanel } from './CameraPanel'
 import { useFilamentStore, spoolsForLinking } from '../stores/filamentStore'
 import { useAuthStore, useAuthGrants } from '../stores/authStore'
@@ -154,6 +153,7 @@ export function DeviceDetailDrawer({
     gcode?: boolean
     files?: boolean
     resin?: boolean
+    notes?: string[]
   } | null>(null)
   const [filamentSlot, setFilamentSlot] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -172,6 +172,8 @@ export function DeviceDetailDrawer({
   const { can, canDevice } = useAuthGrants()
   const canEditDevice = can('device.edit')
   const [aiBusy, setAiBusy] = useState(false)
+  /** Bambu LAN panel: expanded until saved, then collapsed behind a button */
+  const [bambuLanExpanded, setBambuLanExpanded] = useState(true)
   const authUserId = useAuthStore((s) => s.user?.id)
   const printJobs = usePrintQueueStore((s) => s.jobs)
   const refreshPrintQueue = usePrintQueueStore((s) => s.refresh)
@@ -287,6 +289,12 @@ export function DeviceDetailDrawer({
   }
 
   useEffect(() => {
+    if (!open || !deviceId || !device || device.brand !== 'bambu') return
+    const saved = Boolean(String(device.bambuHost || '').trim() || device.bambuLanSecretKey)
+    setBambuLanExpanded(!saved)
+  }, [open, deviceId, device?.brand, device?.bambuHost, device?.bambuLanSecretKey])
+
+  useEffect(() => {
     if (!open || !deviceId) {
       setCaps(null)
       return
@@ -294,7 +302,13 @@ export function DeviceDetailDrawer({
     let cancelled = false
     void serverGet<{
       ok?: boolean
-      capabilities?: { control?: Record<string, boolean>; gcode?: boolean; files?: boolean; resin?: boolean }
+      capabilities?: {
+        control?: Record<string, boolean>
+        gcode?: boolean
+        files?: boolean
+        resin?: boolean
+        notes?: string[]
+      }
     }>(`/api/v1/devices/${encodeURIComponent(deviceId)}/capabilities`)
       .then((r) => {
         if (cancelled) return
@@ -305,7 +319,8 @@ export function DeviceDetailDrawer({
                 control: { ...(c.control || {}) },
                 gcode: Boolean(c.gcode),
                 files: Boolean(c.files),
-                resin: Boolean(c.resin)
+                resin: Boolean(c.resin),
+                notes: Array.isArray(c.notes) ? c.notes.map(String).filter(Boolean) : undefined
               }
             : null
         )
@@ -611,7 +626,7 @@ export function DeviceDetailDrawer({
       : device.brand === 'creality'
         ? '创想三维'
         : device.brand === 'elegoo'
-          ? '爱乐库'
+          ? '爱乐酷'
           : device.brand === 'anycubic'
             ? '纵维立方'
             : device.brand === 'snapmaker'
@@ -725,90 +740,147 @@ export function DeviceDetailDrawer({
       <PluginSlot name="device.detail.ai.after" context={deviceSlotCtx} />
 
       {device.brand === 'bambu' && canEditDevice ? (
-        <Card size="small" title="拓竹局域网（传文件 / 摄像头 / 开打）" style={{ marginBottom: 16 }}>
-          <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-            {(device.connectionMode || 'lan') === 'cloud'
-              ? '云端账号只负责状态；填写打印机局域网 IP 与屏幕上的访问码后，可混合使用 FTPS 传文件与舱内摄像头。需开启「仅局域网模式」和「开发者模式」。'
-              : '可在此更新局域网 IP；访问码留空表示不修改已保存的密钥。'}
-            {' '}
-            X1 系列舱内画面走 RTSP :322，服务器需安装 ffmpeg。
-          </Typography.Paragraph>
-          <Space direction="vertical" style={{ width: '100%' }} size={8}>
-            <Input
-              addonBefore="局域网 IP"
-              placeholder="例如 192.168.1.50"
-              defaultValue={device.bambuHost || ''}
-              id={`bambu-host-${device.id}`}
-              onBlur={(e) => {
-                const host = e.target.value.trim()
-                if (host === (device.bambuHost || '')) return
-                void updateDevice({ ...device, bambuHost: host || undefined })
-                  .then(() => message.success('局域网 IP 已保存'))
-                  .catch((err) => message.error(err instanceof Error ? err.message : '保存失败'))
-              }}
-            />
-            <Input.Password
-              addonBefore="访问码"
-              placeholder={device.bambuLanSecretKey ? '已保存，留空不修改' : '打印机屏幕上的访问码'}
-              id={`bambu-lan-code-${device.id}`}
-              onPressEnter={(e) => {
-                const code = (e.target as HTMLInputElement).value.trim()
-                if (!code) return
-                void updateDevice({
-                  ...device,
-                  bambuLanAccessCode: code
-                } as DeviceConfig)
-                  .then(() => {
-                    ;(e.target as HTMLInputElement).value = ''
-                    message.success('局域网访问码已保存')
-                  })
-                  .catch((err) => message.error(err instanceof Error ? err.message : '保存失败'))
-              }}
-            />
-            <Button
-              size="small"
-              type="primary"
-              onClick={() => {
-                const hostEl = document.getElementById(`bambu-host-${device.id}`) as HTMLInputElement | null
-                const codeEl = document.getElementById(`bambu-lan-code-${device.id}`) as HTMLInputElement | null
-                const host = (hostEl?.value || '').trim()
-                const code = (codeEl?.value || '').trim()
-                const patch: DeviceConfig = {
-                  ...device,
-                  bambuHost: host || undefined
+        bambuLanExpanded ||
+        !(String(device.bambuHost || '').trim() || device.bambuLanSecretKey) ? (
+          <Card
+            size="small"
+            title="拓竹局域网（传文件 / 摄像头 / 开打）"
+            style={{ marginBottom: 16 }}
+            extra={
+              String(device.bambuHost || '').trim() || device.bambuLanSecretKey ? (
+                <Button type="link" size="small" onClick={() => setBambuLanExpanded(false)}>
+                  收起
+                </Button>
+              ) : null
+            }
+          >
+            <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+              {(device.connectionMode || 'lan') === 'cloud'
+                ? '云端账号只负责状态；填写打印机局域网 IP 与屏幕上的访问码后，可混合使用 FTPS 传文件与舱内摄像头。需开启「仅局域网模式」和「开发者模式」。'
+                : '可在此更新局域网 IP；访问码留空表示不修改已保存的密钥。'}{' '}
+              X1 系列舱内画面走 RTSP :322，服务器需安装 ffmpeg。
+            </Typography.Paragraph>
+            <Space direction="vertical" style={{ width: '100%' }} size={8}>
+              <Input
+                addonBefore="局域网 IP"
+                placeholder="例如 192.168.1.50"
+                defaultValue={device.bambuHost || ''}
+                key={`bambu-host-${device.id}-${device.bambuHost || ''}`}
+                id={`bambu-host-${device.id}`}
+              />
+              <Input.Password
+                addonBefore="访问码"
+                placeholder={
+                  device.bambuLanSecretKey ? '已保存，留空不修改' : '打印机屏幕上的访问码'
                 }
-                if (code) (patch as DeviceConfig & { bambuLanAccessCode?: string }).bambuLanAccessCode = code
-                void updateDevice(patch)
-                  .then(() => {
-                    if (codeEl) codeEl.value = ''
-                    message.success('拓竹局域网设置已保存')
-                  })
-                  .catch((err) => message.error(err instanceof Error ? err.message : '保存失败'))
-              }}
-            >
-              保存局域网设置
+                id={`bambu-lan-code-${device.id}`}
+                onPressEnter={(e) => {
+                  const code = (e.target as HTMLInputElement).value.trim()
+                  if (!code) return
+                  void updateDevice({
+                    ...device,
+                    bambuLanAccessCode: code
+                  } as DeviceConfig)
+                    .then(() => {
+                      ;(e.target as HTMLInputElement).value = ''
+                      message.success('局域网访问码已保存')
+                      setBambuLanExpanded(false)
+                    })
+                    .catch((err) =>
+                      message.error(err instanceof Error ? err.message : '保存失败')
+                    )
+                }}
+              />
+              <Space wrap>
+                <Button
+                  size="small"
+                  type="primary"
+                  onClick={() => {
+                    const hostEl = document.getElementById(
+                      `bambu-host-${device.id}`
+                    ) as HTMLInputElement | null
+                    const codeEl = document.getElementById(
+                      `bambu-lan-code-${device.id}`
+                    ) as HTMLInputElement | null
+                    const host = (hostEl?.value || '').trim()
+                    const code = (codeEl?.value || '').trim()
+                    if (!host && !code && !device.bambuLanSecretKey) {
+                      message.warning('请至少填写局域网 IP 或访问码')
+                      return
+                    }
+                    const patch: DeviceConfig = {
+                      ...device,
+                      bambuHost: host || undefined
+                    }
+                    if (code)
+                      (patch as DeviceConfig & { bambuLanAccessCode?: string }).bambuLanAccessCode =
+                        code
+                    void updateDevice(patch)
+                      .then(() => {
+                        if (codeEl) codeEl.value = ''
+                        message.success('拓竹局域网设置已保存')
+                        setBambuLanExpanded(false)
+                      })
+                      .catch((err) =>
+                        message.error(err instanceof Error ? err.message : '保存失败')
+                      )
+                  }}
+                >
+                  保存局域网设置
+                </Button>
+                {device.bambuLanSecretKey || device.bambuHost ? (
+                  <Button
+                    size="small"
+                    danger
+                    onClick={() => {
+                      Modal.confirm({
+                        title: '清除局域网访问码？',
+                        content:
+                          '将删除已保存的访问码。舱内摄像头与 FTPS 将不可用，直到重新填写。',
+                        okText: '清除访问码',
+                        okButtonProps: { danger: true },
+                        onOk: () =>
+                          updateDevice({
+                            ...device,
+                            clearBambuLanAccessCode: true
+                          } as DeviceConfig)
+                            .then(() => {
+                              message.success('已清除局域网访问码')
+                              setBambuLanExpanded(true)
+                            })
+                            .catch((err) =>
+                              message.error(err instanceof Error ? err.message : '清除失败')
+                            )
+                      })
+                    }}
+                  >
+                    清除访问码
+                  </Button>
+                ) : null}
+              </Space>
+            </Space>
+          </Card>
+        ) : (
+          <div style={{ marginBottom: 16 }}>
+            <Button size="small" onClick={() => setBambuLanExpanded(true)}>
+              拓竹局域网设置
             </Button>
-          </Space>
-        </Card>
+          </div>
+        )
       ) : null}
 
-      {device.brand === 'bambu' && (device.connectionMode || 'lan') === 'lan' ? (
+      {caps?.notes?.length ? (
         <Alert
-          type="warning"
+          type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message={
-            st?.message && String(st.message).includes('MQTT')
-              ? '拓竹控制被拒（需开发者模式）'
-              : '拓竹局域网控制说明'
-          }
+          message="能力说明"
           description={
-            <>
-              {st?.message && String(st.message).includes('MQTT') ? (
-                <div style={{ marginBottom: 8 }}>{String(st.message)}</div>
-              ) : null}
-              <BambuDevModeHelp compact={!String(st?.message || '').includes('MQTT')} />
-            </>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {caps.notes.map((n) => (
+                <li key={n}>{n}</li>
+              ))}
+            </ul>
           }
         />
       ) : null}

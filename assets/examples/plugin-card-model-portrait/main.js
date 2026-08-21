@@ -71,7 +71,7 @@ function normalizeBrandKey(brand, model) {
     .toLowerCase()
   if (b === 'bambu' || b === 'bambulab' || b === 'bambu lab' || b === '拓竹') return 'bambu'
   if (b === 'creality' || b === '创想' || b === '创想三维') return 'creality'
-  if (b === 'elegoo' || b === '爱乐库') return 'elegoo'
+  if (b === 'elegoo' || b === '爱乐酷' || b === '爱乐库' || b === '爱乐高') return 'elegoo'
   if (b === 'anycubic' || b === '纵维' || b === '纵维立方') return 'anycubic'
   if (b === 'snapmaker') return 'snapmaker'
   if (b === 'flashforge' || b === '闪铸') return 'flashforge'
@@ -95,7 +95,7 @@ function brandNice(brand) {
   const map = {
     bambu: 'Bambu Lab',
     creality: '创想三维',
-    elegoo: '爱乐库',
+    elegoo: '爱乐酷',
     anycubic: '纵维立方',
     snapmaker: 'Snapmaker',
     flashforge: '闪铸',
@@ -308,7 +308,7 @@ function listLibrary(api) {
     brands: [
       { id: 'bambu', name: 'Bambu Lab' },
       { id: 'creality', name: '创想三维' },
-      { id: 'elegoo', name: '爱乐库' },
+      { id: 'elegoo', name: '爱乐酷' },
       { id: 'anycubic', name: '纵维立方' },
       { id: 'snapmaker', name: 'Snapmaker' },
       { id: 'flashforge', name: '闪铸' },

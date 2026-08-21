@@ -233,11 +233,6 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
       )
       .map((d) => ({ ...d, tech: d.tech || ('fdm' as const) }))
 
-    // Drop non-Bambu cloud devices (云端创想/纵维等仅局域网可靠)
-    loaded = loaded.filter(
-      (d) => !(d.connectionMode === 'cloud' && d.brand !== 'bambu')
-    )
-
     if (loaded.length !== raw.length) persistDevices(loaded)
     const plugin = await window.electronAPI?.bambu.checkPlugin()
     set({
@@ -393,11 +388,21 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
 
   addDevice: async (device, apiKey) => {
     const tech = deviceTech(device)
+    const lanCode =
+      typeof (device as DeviceConfig & { bambuLanAccessCode?: string }).bambuLanAccessCode ===
+      'string'
+        ? String(
+            (device as DeviceConfig & { bambuLanAccessCode?: string }).bambuLanAccessCode || ''
+          ).trim()
+        : ''
     if (isClientMode()) {
-      await serverSend('/api/v1/devices', 'POST', {
-        ...device,
-        secret: apiKey
-      })
+      const payload = { ...device, secret: apiKey } as DeviceConfig & {
+        secret?: string
+        bambuLanAccessCode?: string
+      }
+      if (lanCode) payload.bambuLanAccessCode = lanCode
+      else delete payload.bambuLanAccessCode
+      await serverSend('/api/v1/devices', 'POST', payload)
       await get().refreshFromServer()
       get().revealDevice(device.id, tech)
       return
@@ -405,24 +410,31 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
     if (apiKey && device.secretKey) {
       await window.electronAPI?.secrets.set(device.secretKey, apiKey)
     }
-    const devices = [...get().devices, device]
+    const persist = { ...device } as DeviceConfig & { bambuLanAccessCode?: string }
+    delete persist.bambuLanAccessCode
+    if (lanCode) {
+      const lanKey = `bambu:lan:${device.id}`
+      await window.electronAPI?.secrets.set(lanKey, lanCode)
+      persist.bambuLanSecretKey = lanKey
+    }
+    const devices = [...get().devices, persist]
     set({ devices })
     persistDevices(devices)
 
     const key = device.secretKey
       ? await window.electronAPI?.secrets.get(device.secretKey)
       : null
-    const adapter = createAdapter(device, key)
+    const adapter = createAdapter(persist, key)
     adapter.subscribe((status) => {
-      queueDeviceStatus(device, status)
+      queueDeviceStatus(persist, status)
     })
     try {
       await adapter.connect()
     } catch {
       // status already emitted
     }
-    set((s) => ({ adapters: { ...s.adapters, [device.id]: adapter } }))
-    get().revealDevice(device.id, tech)
+    set((s) => ({ adapters: { ...s.adapters, [persist.id]: adapter } }))
+    get().revealDevice(persist.id, tech)
   },
 
   removeDevice: async (id) => {
@@ -440,6 +452,13 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
       const stillUsed = next.some((d) => d.secretKey === device.secretKey)
       if (!stillUsed) await window.electronAPI?.secrets.delete(device.secretKey)
     }
+    const lanKey =
+      typeof device?.bambuLanSecretKey === 'string' && device.bambuLanSecretKey
+        ? device.bambuLanSecretKey
+        : device
+          ? `bambu:lan:${device.id}`
+          : ''
+    if (lanKey) await window.electronAPI?.secrets.delete(lanKey)
     const { [id]: _a, ...restAdapters } = adapters
     const { [id]: _s, ...restStatuses } = get().statuses
     set({
@@ -453,26 +472,44 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
   },
 
   updateDevice: async (device) => {
+    const ext = device as DeviceConfig & {
+      bambuLanAccessCode?: string
+      clearBambuLanAccessCode?: boolean
+    }
     const lanCode =
-      typeof (device as DeviceConfig & { bambuLanAccessCode?: string }).bambuLanAccessCode === 'string'
-        ? String((device as DeviceConfig & { bambuLanAccessCode?: string }).bambuLanAccessCode || '').trim()
-        : ''
-    const payload = { ...device } as DeviceConfig & { bambuLanAccessCode?: string }
+      typeof ext.bambuLanAccessCode === 'string' ? String(ext.bambuLanAccessCode || '').trim() : ''
+    const clearLan = ext.clearBambuLanAccessCode === true || ext.bambuLanAccessCode === null
+    const payload = { ...device } as DeviceConfig & {
+      bambuLanAccessCode?: string | null
+      clearBambuLanAccessCode?: boolean
+    }
     if (lanCode) payload.bambuLanAccessCode = lanCode
     else delete payload.bambuLanAccessCode
+    if (clearLan) {
+      payload.clearBambuLanAccessCode = true
+      delete payload.bambuLanAccessCode
+    }
 
     if (isClientMode()) {
       await serverSend(`/api/v1/devices/${encodeURIComponent(device.id)}`, 'PATCH', payload)
       await get().refreshFromServer()
       return
     }
-    if (lanCode) {
-      const lanKey = device.bambuLanSecretKey || `bambu:lan:${device.id}`
+    const lanKey = device.bambuLanSecretKey || `bambu:lan:${device.id}`
+    if (clearLan) {
+      await window.electronAPI?.secrets.delete(lanKey)
+      payload.bambuLanSecretKey = undefined
+      delete payload.clearBambuLanAccessCode
+    } else if (lanCode) {
       await window.electronAPI?.secrets.set(lanKey, lanCode)
       payload.bambuLanSecretKey = lanKey
       delete payload.bambuLanAccessCode
     }
-    const { bambuLanAccessCode: _drop, ...persist } = payload
+    const {
+      bambuLanAccessCode: _drop,
+      clearBambuLanAccessCode: _c,
+      ...persist
+    } = payload
     const devices = get().devices.map((d) => (d.id === device.id ? { ...persist } : d))
     set({ devices })
     persistDevices(devices)
@@ -609,11 +646,11 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
   batchUploadAndPrint: async (deviceIds, files, onProgress) => {
     if (!files.length) throw new Error('请选择 G-code 文件')
 
-    const { assertSameBrandAndModel } = await import('../utils/batchPrintGroup')
+    const { assertSameBrandBatch } = await import('../utils/batchPrintGroup')
     const picked = deviceIds
       .map((id) => get().devices.find((d) => d.id === id))
       .filter((d): d is DeviceConfig => !!d && canBatchPrint(d))
-    const group = assertSameBrandAndModel(picked)
+    const group = assertSameBrandBatch(picked)
     if (!group.ok) throw new Error(group.message)
 
     if (isClientMode()) {

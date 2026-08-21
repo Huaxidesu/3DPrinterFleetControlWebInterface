@@ -10,6 +10,15 @@ import {
 } from '../bambu/cloud'
 import { createBambuMqttBridge } from '../bambu/mqtt'
 import { createAnycubicLanBridge } from '../anycubic/lan'
+import {
+  anycubicListDevices,
+  anycubicValidateToken,
+  type AnycubicAuthMode
+} from '../anycubic/cloud'
+import {
+  crealityFetchDevices,
+  type CrealityCloudRegion
+} from '../creality/cloud'
 import { createElegooSdcpBridge } from '../elegoo/sdcp'
 import { flashforgeProbe } from '../flashforge/lan'
 import { snapmakerProbe } from '../snapmaker/lan'
@@ -173,6 +182,41 @@ export async function handleOnboardApi(opts: {
     const result = await anycubicLan.connect({ connectionId: probeId, host })
     await anycubicLan.disconnect(probeId)
     sendJson(res, 200, result)
+    return true
+  }
+
+  if (method === 'POST' && path === '/api/v1/onboard/creality/cloud/devices') {
+    const region = (body.region === 'global' ? 'global' : 'china') as CrealityCloudRegion
+    const token = String(body.token || '').trim()
+    const userId = String(body.userId || body.uid || '').trim()
+    if (!token || !userId) {
+      sendJson(res, 400, { ok: false, devices: [], message: '需要创想云 Token 与用户 ID（UID）' })
+      return true
+    }
+    const list = await crealityFetchDevices(region, token, userId)
+    sendJson(res, 200, list)
+    return true
+  }
+
+  if (method === 'POST' && path === '/api/v1/onboard/anycubic/cloud/devices') {
+    const mode = (body.mode === 'slicer' ? 'slicer' : 'web') as AnycubicAuthMode
+    const token = String(body.token || '').trim()
+    if (!token) {
+      sendJson(res, 400, { ok: false, devices: [], message: '需要纵维云 Token' })
+      return true
+    }
+    const validated = await anycubicValidateToken(token, mode)
+    if (!validated.ok) {
+      sendJson(res, 200, { ok: false, devices: [], message: validated.message })
+      return true
+    }
+    const list = await anycubicListDevices(token, mode)
+    sendJson(res, 200, {
+      ...list,
+      email: validated.email,
+      userId: validated.userId,
+      message: list.ok ? list.message : list.message || validated.message
+    })
     return true
   }
 

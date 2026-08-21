@@ -27,6 +27,7 @@ import {
 } from './controlShared'
 import { handleFullApi, type FullApiDeps } from './fullApi'
 import { handleAiVisionApi } from './aiVisionApi'
+import { probeFfmpeg } from './ffmpegProbe'
 import type { VisionMonitor } from '../ai/visionMonitor'
 import { deviceNameFromPath, makeOperationLog } from '../operationLogs/helpers'
 import { fetchBambuPrintUsageGrams } from '../bambu/printUsage'
@@ -674,6 +675,8 @@ export type ApiServerDeps = {
   onMonitorZonesChanged?: () => void
   /** Notify UI after devices.json mutated via API */
   onDevicesChanged?: () => void
+  /** After backup import: reload settings / users from disk */
+  onBackupImported?: () => void | Promise<void>
   listWallCameras: MonitorApiDeps['listWall']
   listDeviceCameras: MonitorApiDeps['listDeviceCameras']
   listDeviceCameraProbeUrls?: MonitorApiDeps['listDeviceCameraProbeUrls']
@@ -1235,6 +1238,12 @@ export class ApiServer {
       return
     }
 
+    if (method === 'GET' && path === '/api/v1/system/ffmpeg') {
+      const probe = await probeFfmpeg()
+      sendJson(res, 200, probe)
+      return
+    }
+
     const isPluginAdmin =
       auth.kind === 'local' ||
       auth.kind === 'apiKey' ||
@@ -1514,7 +1523,13 @@ export class ApiServer {
         auth,
         getFilamentPath: this.deps.getFilamentPath,
         sendJson,
-        readBody
+        readBody,
+        onImported: async () => {
+          this.deps.onFilamentChanged?.()
+          this.deps.onMonitorZonesChanged?.()
+          this.deps.onDevicesChanged?.()
+          this.deps.onBackupImported?.()
+        }
       })
       if (backupHandled) return
 

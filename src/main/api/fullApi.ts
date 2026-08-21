@@ -631,7 +631,12 @@ export async function handleFullApi(opts: {
         sendJson(res, 404, { ok: false, message: removed.error })
         return true
       }
-      if (removed.removed.secretKey) deps.deleteDeviceSecret(removed.removed.secretKey)
+      const secretKey = removed.removed.secretKey
+      if (secretKey) {
+        const remaining = readJsonArray(deps.getDevicesPath()) as Array<{ secretKey?: string }>
+        const stillUsed = remaining.some((d) => d.secretKey === secretKey)
+        if (!stillUsed) deps.deleteDeviceSecret(secretKey)
+      }
       const lanKey =
         typeof removed.removed.bambuLanSecretKey === 'string'
           ? removed.removed.bambuLanSecretKey

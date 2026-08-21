@@ -59,6 +59,11 @@ export type AlertNotifySettings = {
   /** Min seconds between same device+event notifications */
   cooldownSec: number
   /**
+   * Extra cooldown for monitorOffline emits from SnapshotCam (seconds).
+   * Independent from per-device channel cooldownSec.
+   */
+  monitorOfflineCooldownSec: number
+  /**
    * Device filter for notifications with a deviceId.
    * Events without deviceId always pass.
    */
@@ -176,6 +181,7 @@ export function defaultAlertNotifySettings(): AlertNotifySettings {
     enabled: false,
     events: defaultEvents(),
     cooldownSec: 120,
+    monitorOfflineCooldownSec: 600,
     deviceMode: 'all',
     deviceIds: [],
     pushplusEnabled: false,
@@ -237,6 +243,7 @@ export function normalizeAlertNotifySettings(raw: unknown): AlertNotifySettings 
     if (typeof evRaw[k] === 'boolean') events[k] = evRaw[k] as boolean
   }
   const cool = Math.round(Number(o.cooldownSec))
+  const offlineCool = Math.round(Number(o.monitorOfflineCooldownSec))
   const deviceMode =
     o.deviceMode === 'include' || o.deviceMode === 'exclude' ? o.deviceMode : 'all'
   const deviceIds = Array.isArray(o.deviceIds)
@@ -246,6 +253,9 @@ export function normalizeAlertNotifySettings(raw: unknown): AlertNotifySettings 
     enabled: o.enabled === true,
     events,
     cooldownSec: Number.isFinite(cool) ? Math.max(30, Math.min(3600, cool)) : base.cooldownSec,
+    monitorOfflineCooldownSec: Number.isFinite(offlineCool)
+      ? Math.max(60, Math.min(86400, offlineCool))
+      : base.monitorOfflineCooldownSec,
     deviceMode,
     deviceIds,
     pushplusEnabled: o.pushplusEnabled === true,

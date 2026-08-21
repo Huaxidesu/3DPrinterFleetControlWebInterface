@@ -605,6 +605,21 @@ async function bootstrap(): Promise<void> {
     onDevicesChanged: () => {
       void deviceHostEngine.reconnectAll().catch((e) => console.error('[devices] reconnect failed', e))
     },
+    onBackupImported: () => {
+      try {
+        appSettings = loadAppSettings()
+        setMonitorSnapshotConcurrency(appSettings.monitorSnapshotConcurrency ?? 6)
+        console.log('[backup] settings reloaded from disk')
+      } catch (e) {
+        console.error('[backup] reload settings failed', e)
+      }
+      try {
+        userStore.forceReloadFromDisk()
+      } catch (e) {
+        console.error('[backup] reload users failed', e)
+      }
+      void deviceHostEngine.reconnectAll().catch((e) => console.error('[devices] reconnect failed', e))
+    },
     listWallCameras: async () => {
       const out: Array<{
         deviceId: string

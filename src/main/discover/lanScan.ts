@@ -198,7 +198,7 @@ const PROBES: ProbeDef[] = [
   {
     port: 3030,
     brand: 'elegoo',
-    label: '爱乐库 SDCP'
+    label: '爱乐酷 SDCP'
   },
   {
     port: 18910,

@@ -47,7 +47,7 @@
     b = String(b || '').toLowerCase()
     if (b === 'bambu' || b === 'bambulab') return 'Bambu'
     if (b === 'creality') return '创想'
-    if (b === 'elegoo') return '爱乐库'
+    if (b === 'elegoo') return '爱乐酷'
     if (b === 'anycubic') return '纵维'
     if (b === 'snapmaker') return 'Snapmaker'
     if (b === 'flashforge') return '闪铸'

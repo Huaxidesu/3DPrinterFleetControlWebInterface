@@ -106,7 +106,7 @@ function brandLabel(brand: DeviceConfig['brand']): string {
     case 'creality':
       return '创想'
     case 'elegoo':
-      return '爱乐库'
+      return '爱乐酷'
     case 'anycubic':
       return '纵维'
     case 'snapmaker':

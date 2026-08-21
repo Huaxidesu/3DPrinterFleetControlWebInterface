@@ -2,17 +2,25 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Switch, Typography } from 'antd'
 import type { CameraSource } from '../../adapters/base'
 import { isClientMode, serverGet, serverSend } from '../../api/serverClient'
+import { useSettingsStore } from '../../stores/settingsStore'
 import {
   noteSnapshotFailure,
   noteSnapshotSuccess,
   scheduleSnapshot
 } from './snapshotScheduler'
 
-const OFFLINE_EMIT_COOLDOWN_MS = 10 * 60 * 1000
+const OFFLINE_EMIT_COOLDOWN_DEFAULT_MS = 10 * 60 * 1000
 const lastOfflineEmitAt = new Map<string, number>()
 
 function remoteOf(c: CameraSource): string {
   return c.remoteSnapshotUrl || c.remoteStreamUrl || c.snapshotUrl || c.streamUrl || ''
+}
+
+function offlineCooldownMs(): number {
+  const sec = useSettingsStore.getState().settings.alertNotify?.monitorOfflineCooldownSec
+  const n = Math.round(Number(sec))
+  if (Number.isFinite(n) && n >= 60) return n * 1000
+  return OFFLINE_EMIT_COOLDOWN_DEFAULT_MS
 }
 
 /** Snapshot poll tile; clears timer on unmount (nav leave). */
@@ -171,7 +179,7 @@ export function SnapshotCam({
                 const now = Date.now()
                 const last = lastOfflineEmitAt.get(emitKey) || 0
                 if (
-                  now - last >= OFFLINE_EMIT_COOLDOWN_MS &&
+                  now - last >= offlineCooldownMs() &&
                   (isClientMode() || window.electronAPI)
                 ) {
                   lastOfflineEmitAt.set(emitKey, now)

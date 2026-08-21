@@ -302,7 +302,7 @@ export class DeviceHost {
       if (brand === 'elegoo') {
         const host = deviceHost(d)
         const res = await this.elegooSdcp.connect({ connectionId: id, host })
-        if (!res.ok) throw new Error(res.message || '爱乐库连接失败')
+        if (!res.ok) throw new Error(res.message || '爱乐酷连接失败')
         return
       }
 

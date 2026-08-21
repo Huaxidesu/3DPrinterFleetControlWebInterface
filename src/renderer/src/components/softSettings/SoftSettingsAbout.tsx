@@ -260,11 +260,44 @@ export function SoftSettingsAbout() {
   const [applying, setApplying] = useState(false)
   const [status, setStatus] = useState<UpdateCheckPayload | null>(null)
   const [localVersion, setLocalVersion] = useState<string>(BUILTIN_VERSION)
+  const [ffmpeg, setFfmpeg] = useState<{
+    available: boolean
+    version: string | null
+    message: string
+  } | null>(null)
+  const [ffmpegBusy, setFfmpegBusy] = useState(false)
   const [mirror, setMirror] = useState<UpdateMirrorId>(() => {
     const saved = localStorage.getItem(LS_MIRROR)
     return isMirrorId(saved) ? saved : 'gitee'
   })
   const [mirrors, setMirrors] = useState<UpdateMirrorInfo[]>(FALLBACK_MIRRORS)
+
+  const refreshFfmpeg = useCallback(async () => {
+    setFfmpegBusy(true)
+    try {
+      const res = await apiFetch(serverUrl, '/api/v1/system/ffmpeg', {
+        token: token || undefined
+      })
+      const j = (await res.json()) as {
+        available?: boolean
+        version?: string | null
+        message?: string
+      }
+      setFfmpeg({
+        available: !!j.available,
+        version: j.version ?? null,
+        message: j.message || (j.available ? '已检测到 ffmpeg' : '未检测到 ffmpeg')
+      })
+    } catch {
+      setFfmpeg({
+        available: false,
+        version: null,
+        message: '无法检测（请确认已连接服务器）'
+      })
+    } finally {
+      setFfmpegBusy(false)
+    }
+  }, [serverUrl, token])
 
   const doCheck = useCallback(
     async (force: boolean, nextMirror?: UpdateMirrorId) => {
@@ -345,6 +378,10 @@ export function SoftSettingsAbout() {
   useEffect(() => {
     void doCheck(false)
   }, [doCheck, serverUrl, token])
+
+  useEffect(() => {
+    void refreshFfmpeg()
+  }, [refreshFfmpeg])
 
   const activeMirror =
     mirrors.find((m) => m.id === mirror) || FALLBACK_MIRRORS.find((m) => m.id === mirror) || FALLBACK_MIRRORS[1]!
@@ -479,6 +516,30 @@ export function SoftSettingsAbout() {
               <Typography.Text type="secondary">版本 v{ver}</Typography.Text>
             </div>
             <InfoCircleOutlined style={{ fontSize: 18, opacity: 0.55 }} />
+          </div>
+
+          <div className="settings-row" style={{ alignItems: 'flex-start' }}>
+            <div className="settings-row-label">
+              <Typography.Text strong>ffmpeg（X1 舱内摄像头）</Typography.Text>
+              <Typography.Text type="secondary">
+                {ffmpeg
+                  ? ffmpeg.message
+                  : '检测中…拓竹 X1 系列舱内画面走 RTSP，服务器需安装 ffmpeg'}
+              </Typography.Text>
+            </div>
+            <Space>
+              {ffmpeg ? (
+                <Alert
+                  type={ffmpeg.available ? 'success' : 'warning'}
+                  showIcon
+                  style={{ padding: '2px 10px', margin: 0 }}
+                  message={ffmpeg.available ? '可用' : '未就绪'}
+                />
+              ) : null}
+              <Button size="small" loading={ffmpegBusy} onClick={() => void refreshFfmpeg()}>
+                重新检测
+              </Button>
+            </Space>
           </div>
 
           <div>

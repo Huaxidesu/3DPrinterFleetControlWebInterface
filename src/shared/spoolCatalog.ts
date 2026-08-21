@@ -96,7 +96,8 @@ export function vendorToBrandId(vendor: string): string {
   if (s.includes('esun') || raw.includes('易生')) return 'esun'
   if (s.includes('creality') || raw.includes('创想')) return 'creality'
   if (s.includes('anycubic') || raw.includes('纵维')) return 'anycubic'
-  if (s.includes('elegoo') || raw.includes('爱乐酷')) return 'elegoo'
+  if (s.includes('elegoo') || raw.includes('爱乐酷') || raw.includes('爱乐库') || raw.includes('爱乐高'))
+    return 'elegoo'
   if (s.includes('polymaker')) return 'polymaker'
   if (s.includes('sunlu') || raw.includes('三绿')) return 'sunlu'
   if (s.startsWith('custom:')) return raw

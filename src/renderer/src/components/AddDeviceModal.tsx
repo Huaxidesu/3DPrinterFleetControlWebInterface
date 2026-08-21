@@ -32,7 +32,7 @@ import type {
   PrinterBrand,
   PrinterTech
 } from '../types/printer'
-import type { BambuCloudDevice } from '../api/onboardApi'
+import type { BambuCloudDevice, CrealityCloudDevice, AnycubicCloudDevice } from '../api/onboardApi'
 import { BambuDevModeHelp } from './BambuDevModeHelp'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { newId } from '../utils/id'
@@ -68,6 +68,8 @@ type FormValues = {
   bambuDeviceId?: string
   bambuHost?: string
   bambuAccessCode?: string
+  /** Optional LAN access code when adding cloud Bambu (hybrid FTPS / camera) */
+  bambuLanAccessCode?: string
   bambuRegion?: BambuRegion
   bambuLoginMethod?: 'sms' | 'password'
   bambuAccount?: string
@@ -76,6 +78,11 @@ type FormValues = {
   /** Creality Fluidd user (optional) */
   crealityUser?: string
   crealityPassword?: string
+  crealityRegion?: 'china' | 'global'
+  crealityCloudToken?: string
+  crealityCloudUserId?: string
+  anycubicAuthMode?: 'web' | 'slicer'
+  anycubicCloudToken?: string
   flashforgeSerial?: string
   flashforgeCheckCode?: string
   snapmakerToken?: string
@@ -152,6 +159,8 @@ export function AddDeviceModal({
   const [cloudToken, setCloudToken] = useState<string | null>(null)
   const [cloudUid, setCloudUid] = useState<string | null>(null)
   const [cloudDevices, setCloudDevices] = useState<BambuCloudDevice[]>([])
+  const [crealityCloudDevices, setCrealityCloudDevices] = useState<CrealityCloudDevice[]>([])
+  const [anycubicCloudDevices, setAnycubicCloudDevices] = useState<AnycubicCloudDevice[]>([])
   const [selectedDevIds, setSelectedDevIds] = useState<string[]>([])
   const [loggingIn, setLoggingIn] = useState(false)
   const [sendingCode, setSendingCode] = useState(false)
@@ -272,6 +281,8 @@ export function AddDeviceModal({
     setCloudToken(null)
     setCloudUid(null)
     setCloudDevices([])
+    setCrealityCloudDevices([])
+    setAnycubicCloudDevices([])
     setSelectedDevIds([])
     setLanHits([])
     setScanProgress(null)
@@ -570,6 +581,93 @@ export function AddDeviceModal({
   }
 
   const saveCloudDevices = async () => {
+    const values = form.getFieldsValue()
+    const brandId = String(values.brand || '')
+
+    if (brandId === 'creality') {
+      if (!cloudToken || !cloudUid) {
+        message.warning('请先用创想云 Token 拉取设备')
+        return
+      }
+      if (!selectedDevIds.length) {
+        message.warning('请至少选择一台设备')
+        return
+      }
+      const region = (values.crealityRegion || 'china') as 'china' | 'global'
+      const tokenKey = `creality:cloud:token:${region}`
+      if (!isClientMode()) {
+        await window.electronAPI?.secrets.set(tokenKey, cloudToken)
+      }
+      let added = 0
+      for (const devId of selectedDevIds) {
+        const cloudDev = crealityCloudDevices.find((d) => d.id === devId)
+        if (!cloudDev) continue
+        const id = newId()
+        const device: DeviceConfig = {
+          id,
+          name: cloudDev.name || cloudDev.id,
+          brand: 'creality',
+          model: cloudDev.model || modelOf(values) || undefined,
+          group: values.group?.trim() || undefined,
+          tags: parseTags(values.tags),
+          secretKey: tokenKey,
+          connectionMode: 'cloud',
+          crealityDeviceId: cloudDev.id,
+          crealityUserId: cloudUid,
+          crealityRegion: region,
+          baseUrl: cloudDev.host ? `http://${cloudDev.host}` : undefined,
+          createdAt: new Date().toISOString()
+        }
+        await addDevice(device, cloudToken)
+        added += 1
+      }
+      message.success(`已添加 ${added} 台创想云设备`)
+      reset()
+      onClose()
+      return
+    }
+
+    if (brandId === 'anycubic') {
+      if (!cloudToken) {
+        message.warning('请先用纵维云 Token 拉取设备')
+        return
+      }
+      if (!selectedDevIds.length) {
+        message.warning('请至少选择一台设备')
+        return
+      }
+      const mode = (values.anycubicAuthMode || 'web') as 'web' | 'slicer'
+      const tokenKey = `anycubic:cloud:token:${mode}`
+      if (!isClientMode()) {
+        await window.electronAPI?.secrets.set(tokenKey, cloudToken)
+      }
+      let added = 0
+      for (const devId of selectedDevIds) {
+        const cloudDev = anycubicCloudDevices.find((d) => d.id === devId)
+        if (!cloudDev) continue
+        const id = newId()
+        const device: DeviceConfig = {
+          id,
+          name: cloudDev.name || cloudDev.id,
+          brand: 'anycubic',
+          model: cloudDev.model || modelOf(values) || undefined,
+          group: values.group?.trim() || undefined,
+          tags: parseTags(values.tags),
+          secretKey: tokenKey,
+          connectionMode: 'cloud',
+          anycubicPrinterId: cloudDev.id,
+          anycubicAuthMode: mode,
+          createdAt: new Date().toISOString()
+        }
+        await addDevice(device, cloudToken)
+        added += 1
+      }
+      message.success(`已添加 ${added} 台纵维云设备`)
+      reset()
+      onClose()
+      return
+    }
+
     if (!cloudToken || !cloudUid) {
       message.error('请先登录 Bambu 账号')
       return
@@ -578,19 +676,25 @@ export function AddDeviceModal({
       message.error('请至少选择一台设备')
       return
     }
-    const values = form.getFieldsValue()
     const region = (values.bambuRegion || 'china') as BambuRegion
     const tokenKey = `bambu:cloud:token:${region}`
     if (!isClientMode()) {
       await window.electronAPI?.secrets.set(tokenKey, cloudToken)
     }
 
+    const hybridHost = String(values.bambuHost || '')
+      .trim()
+      .replace(/^https?:\/\//, '')
+      .split('/')[0]
+      .split(':')[0]
+    const hybridLanCode = String(values.bambuLanAccessCode || '').trim()
+
     let added = 0
     for (const devId of selectedDevIds) {
       const cloudDev = cloudDevices.find((d) => d.dev_id === devId)
       if (!cloudDev) continue
       const id = newId()
-      const device: DeviceConfig = {
+      const device: DeviceConfig & { bambuLanAccessCode?: string } = {
         id,
         name: cloudDev.name || cloudDev.dev_product_name || cloudDev.dev_id,
         brand: 'bambu',
@@ -608,13 +712,73 @@ export function AddDeviceModal({
         bambuUserId: cloudUid,
         createdAt: new Date().toISOString()
       }
-      // token already stored under shared key; pass token so adapter can connect immediately
+      if (hybridHost) device.bambuHost = hybridHost
+      if (hybridLanCode) device.bambuLanAccessCode = hybridLanCode
       await addDevice(device, cloudToken)
       added += 1
     }
     message.success(`已添加 ${added} 台云端设备`)
     reset()
     onClose()
+  }
+
+  const fetchCrealityCloudDevices = async () => {
+    const values = form.getFieldsValue()
+    const token = String(values.crealityCloudToken || '').trim()
+    const userId = String(values.crealityCloudUserId || '').trim()
+    const region = (values.crealityRegion || 'china') as 'china' | 'global'
+    if (!token || !userId) {
+      message.warning('请填写创想云 Token 与 UID')
+      return
+    }
+    setLoggingIn(true)
+    try {
+      const res = await onboard.crealityCloudFetchDevices(region, token, userId)
+      if (!res.ok) {
+        message.error(res.message || '拉取失败')
+        return
+      }
+      setCloudToken(token)
+      setCloudUid(userId)
+      setCrealityCloudDevices(res.devices || [])
+      setSelectedDevIds((res.devices || []).filter((d) => d.online).map((d) => d.id))
+      message.success(res.message || `已拉取 ${res.devices?.length || 0} 台`)
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '拉取失败')
+    } finally {
+      setLoggingIn(false)
+    }
+  }
+
+  const fetchAnycubicCloudDevices = async () => {
+    const values = form.getFieldsValue()
+    const token = String(values.anycubicCloudToken || '').trim()
+    const mode = (values.anycubicAuthMode || 'web') as 'web' | 'slicer'
+    if (!token) {
+      message.warning('请粘贴纵维云 Token')
+      return
+    }
+    setLoggingIn(true)
+    try {
+      const res = await onboard.anycubicCloudFetchDevices(token, mode)
+      if (!res.ok) {
+        message.error(res.message || '拉取失败')
+        return
+      }
+      setCloudToken(res.resolvedToken || token)
+      setCloudUid(res.userId || null)
+      setAnycubicCloudDevices(res.devices || [])
+      setSelectedDevIds((res.devices || []).filter((d) => d.online).map((d) => d.id))
+      message.success(
+        res.email
+          ? `已登录 ${res.email}，共 ${res.devices?.length || 0} 台`
+          : `已拉取 ${res.devices?.length || 0} 台`
+      )
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '拉取失败')
+    } finally {
+      setLoggingIn(false)
+    }
   }
 
   const saveElegoo = async (values: FormValues) => {
@@ -631,10 +795,10 @@ export function AddDeviceModal({
         })()
     setProbing(false)
     if (!res?.ok) {
-      message.error(`连接失败: ${res?.message || '无法连接爱乐库 SDCP (:3030)'}`)
+      message.error(`连接失败: ${res?.message || '无法连接爱乐酷 SDCP (:3030)'}`)
       return
     }
-    message.success('爱乐库局域网连接成功')
+    message.success('爱乐酷局域网连接成功')
     const device: DeviceConfig = {
       id,
       name: values.name.trim(),
@@ -647,7 +811,7 @@ export function AddDeviceModal({
       createdAt: new Date().toISOString()
     }
     await addDevice(device)
-    message.success('爱乐库设备已添加')
+    message.success('爱乐酷设备已添加')
     reset()
     onClose()
   }
@@ -815,6 +979,18 @@ export function AddDeviceModal({
         return
       }
       if (values.brand === 'creality') {
+        if (values.connectionMode === 'cloud') {
+          if (!cloudToken || !crealityCloudDevices.length) {
+            message.warning('请先填写创想云 Token/UID 并拉取设备')
+            return
+          }
+          if (!selectedDevIds.length) {
+            message.warning('请至少选择一台设备')
+            return
+          }
+          setCloudConfirmOpen(true)
+          return
+        }
         await saveCreality(values)
         return
       }
@@ -823,6 +999,18 @@ export function AddDeviceModal({
         return
       }
       if (values.brand === 'anycubic') {
+        if (values.connectionMode === 'cloud') {
+          if (!cloudToken || !anycubicCloudDevices.length) {
+            message.warning('请先粘贴纵维云 Token 并拉取设备')
+            return
+          }
+          if (!selectedDevIds.length) {
+            message.warning('请至少选择一台设备')
+            return
+          }
+          setCloudConfirmOpen(true)
+          return
+        }
         await saveAnycubic(values)
         return
       }
@@ -843,15 +1031,17 @@ export function AddDeviceModal({
         return
       }
       // bambu cloud — require confirmation then save selected
-      if (!cloudToken) {
-        message.warning(
-          pBrand
-            ? '请实现插件 submit，或先完成内置品牌流程'
-            : '请先登录 Bambu Lab 账号并选择设备'
-        )
+      if (values.brand === 'bambu' && values.connectionMode === 'cloud') {
+        if (!cloudToken) {
+          message.warning('请先登录 Bambu Lab 账号并选择设备')
+          return
+        }
+        setCloudConfirmOpen(true)
         return
       }
-      setCloudConfirmOpen(true)
+      message.warning(
+        pBrand ? '请实现插件 submit，或先完成内置品牌流程' : '请先完成添加流程'
+      )
     } catch (e) {
       if (e && typeof e === 'object' && 'errorFields' in e) return
       message.error(e instanceof Error ? e.message : '添加失败')
@@ -899,7 +1089,12 @@ export function AddDeviceModal({
         onOk={() => void onOk()}
         confirmLoading={probing || loggingIn}
         destroyOnHidden
-        okText={brand === 'bambu' && connectionMode === 'cloud' ? '添加所选设备' : '添加'}
+        okText={
+          (brand === 'bambu' || brand === 'creality' || brand === 'anycubic') &&
+          connectionMode === 'cloud'
+            ? '添加所选设备'
+            : '添加'
+        }
         cancelText="取消"
         width={isMobile ? '100%' : 640}
         centered={!isMobile}
@@ -1017,7 +1212,8 @@ export function AddDeviceModal({
             <PluginSlot name="device.add.scan.after" />
           </div>
 
-          {brand === 'bambu' && connectionMode === 'cloud' ? null : (
+          {(brand === 'bambu' || brand === 'creality' || brand === 'anycubic') &&
+          connectionMode === 'cloud' ? null : (
             <Form.Item name="name" label="设备名称" rules={[{ required: true, message: '请输入名称' }]}>
               <Input
                 placeholder={
@@ -1033,7 +1229,11 @@ export function AddDeviceModal({
               onChange={(e) => {
                 setNeedCode(false)
                 setCloudToken(null)
+                setCloudUid(null)
                 setCloudDevices([])
+                setCrealityCloudDevices([])
+                setAnycubicCloudDevices([])
+                setSelectedDevIds([])
                 const nextBrand = String(e.target.value || '')
                 const def = getHanyePlugin().getAddDeviceBrand(nextBrand)
                 const defaultConn =
@@ -1045,7 +1245,7 @@ export function AddDeviceModal({
             >
               {tech === 'fdm' ? <Radio.Button value="klipper">Klipper</Radio.Button> : null}
               <Radio.Button value="creality">创想三维</Radio.Button>
-              <Radio.Button value="elegoo">爱乐库</Radio.Button>
+              <Radio.Button value="elegoo">爱乐酷</Radio.Button>
               <Radio.Button value="anycubic">纵维立方</Radio.Button>
               {tech === 'fdm' ? <Radio.Button value="snapmaker">Snapmaker</Radio.Button> : null}
               {tech === 'fdm' ? <Radio.Button value="flashforge">闪铸</Radio.Button> : null}
@@ -1111,33 +1311,146 @@ export function AddDeviceModal({
             </>
           ) : brand === 'creality' ? (
             <>
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 16 }}
-                message="创想三维局域网"
-                description="浏览器里 Fluidd 地址一般是 http://打印机IP:4408 。本应用会按 Moonraker 协议连接该地址（并自动尝试 7125）。若 Fluidd 需要登录，请填写下方账号密码。仅支持局域网，不提供创想云登录。"
-              />
-              <Form.Item name="connectionMode" hidden initialValue="lan">
-                <Input />
+              <Form.Item name="connectionMode" label="网络模式" rules={[{ required: true }]}>
+                <Select
+                  options={[
+                    { value: 'lan', label: '局域网（Fluidd / Moonraker，推荐）' },
+                    { value: 'cloud', label: '创想云账号（Token）' }
+                  ]}
+                  onChange={() => {
+                    setCloudToken(null)
+                    setCloudUid(null)
+                    setCrealityCloudDevices([])
+                    setSelectedDevIds([])
+                  }}
+                />
               </Form.Item>
-              <Form.Item
-                name="baseUrl"
-                label="Fluidd / 打印机地址"
-                rules={[{ required: true, message: '请输入地址' }]}
-                extra="支持 192.168.1.178 或 http://192.168.1.178:4408"
-              >
-                <Input placeholder="http://192.168.1.178:4408" />
-              </Form.Item>
-              <Form.Item name="crealityUser" label="Fluidd 用户名" extra="若网页要登录则填写">
-                <Input placeholder="可选" autoComplete="username" />
-              </Form.Item>
-              <Form.Item name="crealityPassword" label="Fluidd 密码">
-                <Input.Password placeholder="可选" autoComplete="current-password" />
-              </Form.Item>
-              <Form.Item name="apiKey" label="API Key" extra="也可用 Moonraker API Key 代替账号密码">
-                <Input.Password placeholder="可选" />
-              </Form.Item>
+              {connectionMode === 'cloud' ? (
+                <>
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="创想云能力有限"
+                    description="云端主要用于状态与有限控制；传文件/深控请用局域网。Token 与 UID 可从浏览器登录 www.crealitycloud.cn（或 .com）后，在开发者工具 Application / Local Storage 中查找 __CXY_TOKEN_ 与 __CXY_UID_。"
+                  />
+                  <Form.Item
+                    name="crealityRegion"
+                    label="账号区域"
+                    initialValue="china"
+                    rules={[{ required: true }]}
+                  >
+                    <Select
+                      options={[
+                        { value: 'china', label: '中国区（crealitycloud.cn）' },
+                        { value: 'global', label: '国际区（crealitycloud.com）' }
+                      ]}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="crealityCloudUserId"
+                    label="UID"
+                    rules={[{ required: true, message: '请填写创想云 UID' }]}
+                  >
+                    <Input placeholder="__CXY_UID_" />
+                  </Form.Item>
+                  <Form.Item
+                    name="crealityCloudToken"
+                    label="Token"
+                    rules={[{ required: true, message: '请粘贴创想云 Token' }]}
+                  >
+                    <Input.Password placeholder="__CXY_TOKEN_" />
+                  </Form.Item>
+                  <Button
+                    type="primary"
+                    loading={loggingIn}
+                    style={{ marginBottom: 16 }}
+                    onClick={() => void fetchCrealityCloudDevices()}
+                  >
+                    {cloudToken ? '重新拉取设备' : '验证并拉取设备'}
+                  </Button>
+                  {crealityCloudDevices.length > 0 ? (
+                    <>
+                      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                        选择要添加的设备（可多选）
+                      </Typography.Text>
+                      <Table
+                        size="small"
+                        rowKey="id"
+                        pagination={false}
+                        dataSource={crealityCloudDevices}
+                        columns={[
+                          {
+                            title: '名称',
+                            dataIndex: 'name',
+                            ellipsis: true
+                          },
+                          {
+                            title: '机型',
+                            dataIndex: 'model',
+                            width: 120,
+                            ellipsis: true,
+                            render: (v?: string) => v || '—'
+                          },
+                          {
+                            title: '状态',
+                            dataIndex: 'online',
+                            width: 72,
+                            render: (v: boolean) => (v ? '在线' : '离线')
+                          }
+                        ]}
+                        scroll={{ y: 220 }}
+                        rowSelection={{
+                          selectedRowKeys: selectedDevIds,
+                          onChange: (keys) => setSelectedDevIds(keys as string[])
+                        }}
+                        style={{ marginBottom: 16 }}
+                      />
+                      <Checkbox
+                        checked={selectedDevIds.length === crealityCloudDevices.length}
+                        indeterminate={
+                          selectedDevIds.length > 0 &&
+                          selectedDevIds.length < crealityCloudDevices.length
+                        }
+                        onChange={(e) => {
+                          setSelectedDevIds(
+                            e.target.checked ? crealityCloudDevices.map((d) => d.id) : []
+                          )
+                        }}
+                      >
+                        全选
+                      </Checkbox>
+                    </>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="创想三维局域网"
+                    description="浏览器里 Fluidd 地址一般是 http://打印机IP:4408 。本应用会按 Moonraker 协议连接该地址（并自动尝试 7125）。若 Fluidd 需要登录，请填写下方账号密码。"
+                  />
+                  <Form.Item
+                    name="baseUrl"
+                    label="Fluidd / 打印机地址"
+                    rules={[{ required: true, message: '请输入地址' }]}
+                    extra="支持 192.168.1.178 或 http://192.168.1.178:4408"
+                  >
+                    <Input placeholder="http://192.168.1.178:4408" />
+                  </Form.Item>
+                  <Form.Item name="crealityUser" label="Fluidd 用户名" extra="若网页要登录则填写">
+                    <Input placeholder="可选" autoComplete="username" />
+                  </Form.Item>
+                  <Form.Item name="crealityPassword" label="Fluidd 密码">
+                    <Input.Password placeholder="可选" autoComplete="current-password" />
+                  </Form.Item>
+                  <Form.Item name="apiKey" label="API Key" extra="也可用 Moonraker API Key 代替账号密码">
+                    <Input.Password placeholder="可选" />
+                  </Form.Item>
+                </>
+              )}
             </>
           ) : brand === 'elegoo' ? (
             <>
@@ -1145,8 +1458,8 @@ export function AddDeviceModal({
                 type="info"
                 showIcon
                 style={{ marginBottom: 16 }}
-                message="爱乐库局域网（SDCP）"
-                description="适用于 Centauri Carbon / Mars / Saturn 等。请填写打印机局域网 IP。爱乐库暂无公开稳定的第三方云账号 API，请用局域网。"
+                message="爱乐酷局域网（SDCP）"
+                description="适用于 Centauri Carbon / Mars / Saturn 等。请填写打印机局域网 IP。爱乐酷暂无公开稳定的第三方云账号 API，请用局域网。"
               />
               <Form.Item
                 name="baseUrl"
@@ -1159,24 +1472,128 @@ export function AddDeviceModal({
             </>
           ) : brand === 'anycubic' ? (
             <>
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 16 }}
-                message="纵维立方局域网模式"
-                description="适用于 Kobra 3 / S1 / ACE 等。请先在打印机「设置 → 网络 → LAN Mode」开启局域网模式，再填写 IP。仅支持局域网，不提供纵维云登录。"
-              />
-              <Form.Item name="connectionMode" hidden initialValue="lan">
-                <Input />
+              <Form.Item name="connectionMode" label="网络模式" rules={[{ required: true }]}>
+                <Select
+                  options={[
+                    { value: 'lan', label: '局域网（LAN Mode，推荐）' },
+                    { value: 'cloud', label: '纵维云账号（Token）' }
+                  ]}
+                  onChange={() => {
+                    setCloudToken(null)
+                    setCloudUid(null)
+                    setAnycubicCloudDevices([])
+                    setSelectedDevIds([])
+                  }}
+                />
               </Form.Item>
-              <Form.Item
-                name="baseUrl"
-                label="打印机 IP"
-                rules={[{ required: true, message: '请输入 IP' }]}
-                extra="例如 192.168.1.60"
-              >
-                <Input placeholder="192.168.1.60" />
-              </Form.Item>
+              {connectionMode === 'cloud' ? (
+                <>
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="纵维云能力有限"
+                    description="云端可查看状态并暂停/恢复/取消；传文件与开打请用官方 App 或改局域网。网页 Token：登录 cloud.anycubic.com 后从请求头 XX-Token 复制；或粘贴切片软件的 access_token（选「切片软件」模式）。"
+                  />
+                  <Form.Item
+                    name="anycubicAuthMode"
+                    label="Token 来源"
+                    initialValue="web"
+                    rules={[{ required: true }]}
+                  >
+                    <Radio.Group>
+                      <Radio.Button value="web">网页 XX-Token</Radio.Button>
+                      <Radio.Button value="slicer">切片软件 access_token</Radio.Button>
+                    </Radio.Group>
+                  </Form.Item>
+                  <Form.Item
+                    name="anycubicCloudToken"
+                    label="Token"
+                    rules={[{ required: true, message: '请粘贴 Token' }]}
+                  >
+                    <Input.Password placeholder="粘贴 Token" />
+                  </Form.Item>
+                  <Button
+                    type="primary"
+                    loading={loggingIn}
+                    style={{ marginBottom: 16 }}
+                    onClick={() => void fetchAnycubicCloudDevices()}
+                  >
+                    {cloudToken ? '重新拉取设备' : '验证并拉取设备'}
+                  </Button>
+                  {anycubicCloudDevices.length > 0 ? (
+                    <>
+                      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                        选择要添加的设备（可多选）
+                      </Typography.Text>
+                      <Table
+                        size="small"
+                        rowKey="id"
+                        pagination={false}
+                        dataSource={anycubicCloudDevices}
+                        columns={[
+                          {
+                            title: '名称',
+                            dataIndex: 'name',
+                            ellipsis: true
+                          },
+                          {
+                            title: '机型',
+                            dataIndex: 'model',
+                            width: 120,
+                            ellipsis: true,
+                            render: (v?: string) => v || '—'
+                          },
+                          {
+                            title: '状态',
+                            dataIndex: 'online',
+                            width: 72,
+                            render: (v: boolean) => (v ? '在线' : '离线')
+                          }
+                        ]}
+                        scroll={{ y: 220 }}
+                        rowSelection={{
+                          selectedRowKeys: selectedDevIds,
+                          onChange: (keys) => setSelectedDevIds(keys as string[])
+                        }}
+                        style={{ marginBottom: 16 }}
+                      />
+                      <Checkbox
+                        checked={selectedDevIds.length === anycubicCloudDevices.length}
+                        indeterminate={
+                          selectedDevIds.length > 0 &&
+                          selectedDevIds.length < anycubicCloudDevices.length
+                        }
+                        onChange={(e) => {
+                          setSelectedDevIds(
+                            e.target.checked ? anycubicCloudDevices.map((d) => d.id) : []
+                          )
+                        }}
+                      >
+                        全选
+                      </Checkbox>
+                    </>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="纵维立方局域网模式"
+                    description="适用于 Kobra 3 / S1 / ACE 等。请先在打印机「设置 → 网络 → LAN Mode」开启局域网模式，再填写 IP。"
+                  />
+                  <Form.Item
+                    name="baseUrl"
+                    label="打印机 IP"
+                    rules={[{ required: true, message: '请输入 IP' }]}
+                    extra="例如 192.168.1.60"
+                  >
+                    <Input placeholder="192.168.1.60" />
+                  </Form.Item>
+                </>
+              )}
             </>
           ) : brand === 'flashforge' ? (
             <>
@@ -1330,9 +1747,27 @@ export function AddDeviceModal({
                           拦截；若要风扇/加热/速度等控制，请改用「局域网 MQTT」并开启「仅局域网 +
                           开发者模式」。
                         </div>
+                        <div style={{ marginTop: 8 }}>
+                          下方可<strong>可选</strong>填写局域网 IP 与访问码：云端仍管状态，局域网用于
+                          FTPS 传文件与舱内摄像头（需开启「仅局域网模式」和「开发者模式」）。
+                        </div>
                       </div>
                     }
                   />
+                  <Form.Item
+                    name="bambuHost"
+                    label="局域网 IP（可选，混合）"
+                    extra="同一网段打印机 IP；多台一起添加时共用此 IP/访问码，也可添加后在设备详情里分别改"
+                  >
+                    <Input placeholder="例如 192.168.1.100" />
+                  </Form.Item>
+                  <Form.Item
+                    name="bambuLanAccessCode"
+                    label="局域网访问码（可选）"
+                    extra="打印机屏幕上的 Access Code，用于摄像头与 FTPS"
+                  >
+                    <Input.Password placeholder="留空则仅云端状态" />
+                  </Form.Item>
                   <Form.Item name="bambuRegion" label="账号区域" rules={[{ required: true }]}>
                     <Select
                       options={[
@@ -1523,7 +1958,11 @@ export function AddDeviceModal({
       >
         <Space direction="vertical">
           <Typography.Text>
-            云端模式会使用 Bambu Lab 官方账号令牌连接 MQTT，状态经公网同步。请确认你信任本机存储的加密令牌。
+            {brand === 'creality'
+              ? '创想云会使用官方账号 Token 经公网同步状态；传文件/深控请改用局域网。'
+              : brand === 'anycubic'
+                ? '纵维云会使用官方账号 Token 经公网同步状态；传文件/开打请用官方 App 或局域网。'
+                : '云端模式会使用 Bambu Lab 官方账号令牌连接 MQTT，状态经公网同步。请确认你信任本机存储的加密令牌。'}
           </Typography.Text>
           <Typography.Text type="secondary">
             将添加 {selectedDevIds.length} 台设备，是否继续？

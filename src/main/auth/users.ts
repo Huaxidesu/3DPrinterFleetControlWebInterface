@@ -122,6 +122,12 @@ export class UserStore {
     }
   }
 
+  /** Force reload after backup import etc. */
+  forceReloadFromDisk(): void {
+    this.fileMtimeMs = 0
+    this.reloadFromDiskIfNeeded()
+  }
+
   private load(jwtSecretFallback: string): UsersFile {
     try {
       if (existsSync(this.path)) {

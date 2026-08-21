@@ -1,10 +1,10 @@
 /**
- * Admin backup export/import of curated DATA_ROOT JSON files.
+ * Admin backup export/import of curated DATA_ROOT JSON files + quote gcode.
  */
 import type { IncomingMessage, ServerResponse } from 'http'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs'
 import { dirname, join, resolve } from 'path'
-import { unzipSync, zipSync, strToU8, strFromU8 } from 'fflate'
+import { unzipSync, zipSync, strToU8 } from 'fflate'
 import type { AuthContext } from '../auth/authApi'
 import { effectivePermissions, hasPerm } from '../../shared/permissions'
 
@@ -54,6 +54,26 @@ function dataRootFromDeps(getFilamentPath: () => string): string {
   return dirname(resolve(getFilamentPath()))
 }
 
+function collectDirFiles(
+  root: string,
+  relDir: string,
+  out: Array<{ name: string; data: Uint8Array }>,
+  opts?: { ext?: string }
+): void {
+  const abs = join(root, relDir)
+  if (!existsSync(abs) || !statSync(abs).isDirectory()) return
+  for (const ent of readdirSync(abs)) {
+    if (ent.startsWith('.')) continue
+    const fp = join(abs, ent)
+    if (!statSync(fp).isFile()) continue
+    if (opts?.ext && !ent.endsWith(opts.ext)) continue
+    out.push({
+      name: `${relDir.replace(/\/$/, '')}/${ent}`,
+      data: new Uint8Array(readFileSync(fp))
+    })
+  }
+}
+
 function collectFiles(
   root: string,
   includeSecrets: boolean
@@ -66,20 +86,20 @@ function collectFiles(
     if (!existsSync(p) || !statSync(p).isFile()) continue
     out.push({ name, data: new Uint8Array(readFileSync(p)) })
   }
-  // shallow plugin-data/*.json (not nested binaries)
-  const pd = join(root, 'plugin-data')
-  if (existsSync(pd) && statSync(pd).isDirectory()) {
-    for (const ent of readdirSync(pd)) {
-      if (!ent.endsWith('.json')) continue
-      const fp = join(pd, ent)
-      if (!statSync(fp).isFile()) continue
-      out.push({
-        name: `plugin-data/${ent}`,
-        data: new Uint8Array(readFileSync(fp))
-      })
-    }
-  }
+  collectDirFiles(root, 'plugin-data', out, { ext: '.json' })
+  // Quote scheme gcode payloads referenced by quote-schemes.json
+  collectDirFiles(root, 'quote-schemes', out, { ext: '.gcode' })
   return out
+}
+
+function isAllowedBackupPath(norm: string): boolean {
+  if (BACKUP_FILES.includes(norm as (typeof BACKUP_FILES)[number])) return true
+  if ((OPTIONAL_SECRET_FILES as readonly string[]).includes(norm)) return true
+  if (norm.startsWith('plugin-data/') && norm.endsWith('.json') && !norm.includes('..')) return true
+  if (norm.startsWith('quote-schemes/') && norm.endsWith('.gcode') && !norm.includes('..')) {
+    return true
+  }
+  return false
 }
 
 function sendZip(res: ServerResponse, filename: string, buf: Uint8Array): void {
@@ -102,8 +122,11 @@ export async function handleBackupApi(opts: {
   getFilamentPath: () => string
   sendJson: SendJson
   readBody: ReadBody
+  /** Reload in-memory stores after successful import */
+  onImported?: (written: string[]) => void | Promise<void>
 }): Promise<boolean> {
-  const { method, path, url, req, res, auth, getFilamentPath, sendJson, readBody } = opts
+  const { method, path, url, req, res, auth, getFilamentPath, sendJson, readBody, onImported } =
+    opts
   if (!path.startsWith('/api/v1/backup')) return false
   if (!requireAdmin(auth, res, sendJson)) return true
 
@@ -113,7 +136,7 @@ export async function handleBackupApi(opts: {
     const includeSecrets = url.searchParams.get('includeSecrets') === '1'
     const files = collectFiles(root, includeSecrets)
     const manifest = {
-      version: 1,
+      version: 2,
       createdAt: new Date().toISOString(),
       includeSecrets,
       files: files.map((f) => f.name)
@@ -164,30 +187,35 @@ export async function handleBackupApi(opts: {
       return true
     }
     const written: string[] = []
-    const allowed = new Set<string>([...BACKUP_FILES, ...OPTIONAL_SECRET_FILES])
     for (const [name, data] of Object.entries(unzipped)) {
       const norm = name.replace(/^[/\\]+/, '').replace(/\\/g, '/')
       if (norm === 'manifest.json' || norm.endsWith('/')) continue
       if (norm.includes('..')) continue
-      const base = norm.split('/').pop() || ''
-      const isPluginData = norm.startsWith('plugin-data/') && base.endsWith('.json')
-      if (!allowed.has(norm) && !allowed.has(base) && !isPluginData) continue
-      const destRel = isPluginData ? norm : allowed.has(norm) ? norm : base
-      const dest = join(root, destRel)
-      const destDir = dirname(dest)
+      if (!isAllowedBackupPath(norm)) continue
+      const dest = join(root, norm)
       if (!dest.startsWith(root)) continue
-      mkdirSync(destDir, { recursive: true })
+      mkdirSync(dirname(dest), { recursive: true })
       writeFileSync(dest, Buffer.from(data))
-      written.push(destRel)
+      written.push(norm)
     }
     if (!written.length) {
       sendJson(res, 400, { ok: false, message: '备份包中没有可导入的配置文件' })
       return true
     }
+    let reloadOk = false
+    try {
+      await onImported?.(written)
+      reloadOk = true
+    } catch {
+      reloadOk = false
+    }
     sendJson(res, 200, {
       ok: true,
       written,
-      message: `已导入 ${written.length} 个文件。请刷新页面；部分设置可能需重启服务后完全生效。`
+      reloaded: reloadOk,
+      message: reloadOk
+        ? `已导入 ${written.length} 个文件，设置/用户/设备已热加载。插件与主题建议刷新页面；若仍异常请重启服务。`
+        : `已导入 ${written.length} 个文件。请刷新页面；若状态未更新请重启服务。`
     })
     return true
   }

@@ -4,6 +4,7 @@ import {
   Card,
   Input,
   InputNumber,
+  Modal,
   Select,
   Space,
   Switch,
@@ -249,6 +250,21 @@ export function SoftSettingsAlerts() {
           />
         </div>
 
+        <div className="settings-row" style={{ marginBottom: 16 }}>
+          <div className="settings-row-label">
+            <Typography.Text strong>监控离线冷却（秒）</Typography.Text>
+            <Typography.Text type="secondary">
+              同一路摄像头「监控离线」告警最短间隔（默认 600 秒），避免弱网刷屏
+            </Typography.Text>
+          </div>
+          <InputNumber
+            min={60}
+            max={86400}
+            value={d.monitorOfflineCooldownSec}
+            onChange={(v) => patchDraft({ monitorOfflineCooldownSec: Number(v) || 600 })}
+          />
+        </div>
+
         <Typography.Title level={5}>触发事件</Typography.Title>
         {ALERT_EVENT_KINDS.map((kind) => (
           <div key={kind} className="settings-row" style={{ marginBottom: 8 }}>
@@ -302,15 +318,17 @@ export function SoftSettingsAlerts() {
               size="small"
               danger
               onClick={() => {
-                void (async () => {
-                  try {
+                Modal.confirm({
+                  title: '清空通知历史？',
+                  content: '将删除服务器上保存的告警历史记录，此操作不可恢复。',
+                  okText: '清空',
+                  okButtonProps: { danger: true },
+                  onOk: async () => {
                     await serverSend('/api/v1/alert-notify/history', 'DELETE', {})
                     message.success('历史已清空')
                     await loadHistory()
-                  } catch (e) {
-                    message.error(e instanceof Error ? e.message : String(e))
                   }
-                })()
+                })
               }}
             >
               清空

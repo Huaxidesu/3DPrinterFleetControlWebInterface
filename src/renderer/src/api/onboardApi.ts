@@ -89,6 +89,48 @@ export async function anycubicProbeLan(host: string) {
   })
 }
 
+export type CrealityCloudDevice = {
+  id: string
+  name: string
+  model?: string
+  online: boolean
+  host?: string
+}
+
+export async function crealityCloudFetchDevices(
+  region: 'china' | 'global',
+  token: string,
+  userId: string
+) {
+  return serverSend<{
+    ok: boolean
+    devices: CrealityCloudDevice[]
+    message?: string
+  }>('/api/v1/onboard/creality/cloud/devices', 'POST', { region, token, userId })
+}
+
+export type AnycubicCloudDevice = {
+  id: string
+  name: string
+  model?: string
+  online: boolean
+  key?: string
+}
+
+export async function anycubicCloudFetchDevices(
+  token: string,
+  mode: 'web' | 'slicer' = 'web'
+) {
+  return serverSend<{
+    ok: boolean
+    devices: AnycubicCloudDevice[]
+    message?: string
+    resolvedToken?: string
+    email?: string
+    userId?: string
+  }>('/api/v1/onboard/anycubic/cloud/devices', 'POST', { token, mode })
+}
+
 export async function elegooProbe(host: string) {
   return serverSend<{ ok: boolean; message?: string }>('/api/v1/onboard/elegoo/probe', 'POST', {
     host

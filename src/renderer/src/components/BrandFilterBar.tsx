@@ -9,7 +9,7 @@ const FDM_BRANDS: { key: BrandFilter; label: string }[] = [
   { key: 'all', label: '全部' },
   { key: 'klipper', label: 'Klipper' },
   { key: 'creality', label: '创想三维' },
-  { key: 'elegoo', label: '爱乐库' },
+  { key: 'elegoo', label: '爱乐酷' },
   { key: 'anycubic', label: '纵维立方' },
   { key: 'snapmaker', label: 'Snapmaker' },
   { key: 'flashforge', label: '闪铸' },
@@ -19,7 +19,7 @@ const FDM_BRANDS: { key: BrandFilter; label: string }[] = [
 
 const RESIN_BRANDS: { key: BrandFilter; label: string }[] = [
   { key: 'all', label: '全部' },
-  { key: 'elegoo', label: '爱乐库' },
+  { key: 'elegoo', label: '爱乐酷' },
   { key: 'anycubic', label: '纵维立方' },
   { key: 'creality', label: '创想三维' }
 ]

@@ -223,7 +223,7 @@ export function createElegooSdcpBridge(getMainWindow: () => BridgeWindow | null)
       health: 'connecting',
       state: 'connecting',
       progress: 0,
-      message: '正在连接爱乐库 SDCP…',
+      message: '正在连接爱乐酷 SDCP…',
       updatedAt: new Date().toISOString()
     })
 
@@ -356,7 +356,7 @@ export function createElegooSdcpBridge(getMainWindow: () => BridgeWindow | null)
       cmd = 403
       data = { PrintSpeedPct: Math.max(1, Math.min(200, Math.round(extra.percent))) }
     } else {
-      throw new Error(`爱乐库暂不支持操作: ${action}`)
+      throw new Error(`爱乐酷暂不支持操作: ${action}`)
     }
 
     s.socket.send(makeCmd(cmd, data, s.mainboardId))

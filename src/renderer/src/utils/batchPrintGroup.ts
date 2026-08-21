@@ -36,8 +36,5 @@ export function assertSameBrandBatch(devices: DeviceConfig[]): BatchPrintGroupCh
   const models = [...new Set(devices.map((d) => deviceModelLabel(d)))]
   const modelLabel =
     models.length === 1 ? models[0]! : `${models.slice(0, 3).join(' / ')}${models.length > 3 ? '…' : ''}`
-  return { ok: true, brand, modelLabel }
+  return { ok: true, brand: brand as PrinterBrand, modelLabel }
 }
-
-/** @deprecated use assertSameBrandBatch */
-export const assertSameBrandAndModel = assertSameBrandBatch

@@ -77,6 +77,7 @@ export function MonitorZonesPage() {
   const renameZone = useMonitorStore((s) => s.renameZone)
   const removeZone = useMonitorStore((s) => s.removeZone)
   const addCamera = useMonitorStore((s) => s.addCamera)
+  const updateCamera = useMonitorStore((s) => s.updateCamera)
   const removeCamera = useMonitorStore((s) => s.removeCamera)
   const devices = useDeviceStore((s) => s.devices)
   const deviceOptions = useMemo(
@@ -94,7 +95,8 @@ export function MonitorZonesPage() {
   }, [snapConcurrency])
 
   const [zoneModal, setZoneModal] = useState<'add' | 'rename' | null>(null)
-  const [camModal, setCamModal] = useState(false)
+  const [camModal, setCamModal] = useState<'add' | 'edit' | null>(null)
+  const [editingCam, setEditingCam] = useState<ZoneCamera | null>(null)
   const [zoneName, setZoneName] = useState('')
   const [camSourceType, setCamSourceType] = useState('http')
   const [camForm] = Form.useForm<{
@@ -102,6 +104,7 @@ export function MonitorZonesPage() {
     url: string
     snapshotUrl?: string
     sourceType?: string
+    deviceId?: string
     [key: string]: unknown
   }>()
   const [pluginTick, bumpPlugin] = useReducer((n: number) => n + 1, 0)
@@ -248,8 +251,11 @@ export function MonitorZonesPage() {
                 type="primary"
                 icon={<PlusOutlined />}
                 onClick={() => {
+                  setEditingCam(null)
+                  setCamSourceType('http')
                   camForm.resetFields()
-                  setCamModal(true)
+                  camForm.setFieldsValue({ sourceType: 'http' })
+                  setCamModal('add')
                 }}
               >
                 添加摄像头
@@ -320,19 +326,45 @@ export function MonitorZonesPage() {
                         <MonitorTilePluginHeader
                           ctx={tileCtx}
                           extra={
-                            <Popconfirm
-                              title="移除此摄像头？"
-                              onConfirm={() => void removeCamera(active.id, cam.id)}
-                            >
+                            <Space size={0}>
                               <Button
                                 size="small"
-                                danger
                                 type="link"
+                                icon={<EditOutlined />}
                                 className="monitor-tile-remove-btn"
+                                onClick={() => {
+                                  setEditingCam(cam)
+                                  const st = String(cam.sourceType || 'http')
+                                  setCamSourceType(st)
+                                  camForm.setFieldsValue({
+                                    name: cam.name,
+                                    url: cam.url,
+                                    snapshotUrl: cam.snapshotUrl,
+                                    deviceId: cam.deviceId,
+                                    sourceType: st,
+                                    ...(cam.pluginData && typeof cam.pluginData === 'object'
+                                      ? cam.pluginData
+                                      : {})
+                                  })
+                                  setCamModal('edit')
+                                }}
                               >
-                                移除
+                                编辑
                               </Button>
-                            </Popconfirm>
+                              <Popconfirm
+                                title="移除此摄像头？"
+                                onConfirm={() => void removeCamera(active.id, cam.id)}
+                              >
+                                <Button
+                                  size="small"
+                                  danger
+                                  type="link"
+                                  className="monitor-tile-remove-btn"
+                                >
+                                  移除
+                                </Button>
+                              </Popconfirm>
+                            </Space>
                           }
                         />
                       }
@@ -413,9 +445,12 @@ export function MonitorZonesPage() {
       </Modal>
 
       <Modal
-        title={`添加摄像头${active ? ` · ${active.name}` : ''}`}
-        open={camModal}
-        onCancel={() => setCamModal(false)}
+        title={`${camModal === 'edit' ? '编辑摄像头' : '添加摄像头'}${active ? ` · ${active.name}` : ''}`}
+        open={!!camModal}
+        onCancel={() => {
+          setCamModal(null)
+          setEditingCam(null)
+        }}
         onOk={() => {
           void (async () => {
             if (!active) return
@@ -424,6 +459,7 @@ export function MonitorZonesPage() {
             } catch {
               return
             }
+            const isEdit = camModal === 'edit' && editingCam
             const sourceDef =
               camSourceType !== 'http'
                 ? getHanyePlugin().getMonitorCameraSource(camSourceType)
@@ -431,8 +467,8 @@ export function MonitorZonesPage() {
             const formCtx = {
               zoneId: active.id,
               zoneName: active.name,
-              mode: 'create' as const,
-              camera: null,
+              mode: (isEdit ? 'edit' : 'create') as 'create' | 'edit',
+              camera: isEdit ? editingCam : null,
               ...formCtxHelpers
             }
             let payload: Record<string, unknown>
@@ -472,22 +508,40 @@ export function MonitorZonesPage() {
             const boundDevice = camForm.getFieldValue('deviceId')
             if (typeof boundDevice === 'string' && boundDevice.trim()) {
               payload.deviceId = boundDevice.trim()
+            } else if (boundDevice === undefined || boundDevice === null || boundDevice === '') {
+              payload.deviceId = undefined
             }
-            const cam = await addCamera(active.id, {
+            const nextCam: ZoneCamera = {
+              ...(isEdit ? editingCam : { id: '' }),
+              id: isEdit ? editingCam.id : '',
               name: String(payload.name || '').trim() || '摄像头',
-              url: String(payload.url || ''),
+              url: String(
+                payload.url != null && String(payload.url) !== ''
+                  ? payload.url
+                  : isEdit
+                    ? editingCam.url || ''
+                    : ''
+              ),
               snapshotUrl:
-                payload.snapshotUrl != null ? String(payload.snapshotUrl) : undefined,
+                payload.snapshotUrl != null
+                  ? String(payload.snapshotUrl)
+                  : isEdit
+                    ? editingCam.snapshotUrl
+                    : undefined,
               deviceId:
                 typeof payload.deviceId === 'string' && payload.deviceId.trim()
                   ? payload.deviceId.trim()
                   : undefined,
               sourceType:
-                payload.sourceType != null ? String(payload.sourceType) : camSourceType,
+                payload.sourceType != null
+                  ? String(payload.sourceType)
+                  : camSourceType,
               pluginData:
                 payload.pluginData && typeof payload.pluginData === 'object'
                   ? (payload.pluginData as Record<string, unknown>)
-                  : undefined,
+                  : isEdit
+                    ? editingCam.pluginData
+                    : undefined,
               ...Object.fromEntries(
                 Object.entries(payload).filter(
                   ([k]) =>
@@ -496,18 +550,32 @@ export function MonitorZonesPage() {
                     k === 'demoNote'
                 )
               )
-            } as Omit<ZoneCamera, 'id'>)
+            }
+            if (isEdit) {
+              await updateCamera(active.id, nextCam)
+              message.success('已保存')
+              setCamModal(null)
+              setEditingCam(null)
+              return
+            }
+            const { id: _id, ...createPayload } = nextCam
+            const cam = await addCamera(active.id, createPayload)
             if (!cam) {
               message.error('请填写有效的画面地址，或选择插件对接并完成配置')
               return
             }
             message.success('已添加')
-            setCamModal(false)
+            setCamModal(null)
+            setEditingCam(null)
           })()
         }}
         destroyOnHidden
         afterOpenChange={(open) => {
-          if (open) {
+          if (!open) {
+            setEditingCam(null)
+            return
+          }
+          if (camModal === 'add') {
             setCamSourceType('http')
             camForm.resetFields()
             camForm.setFieldsValue({ sourceType: 'http' })
@@ -520,7 +588,9 @@ export function MonitorZonesPage() {
             ...slotCtx,
             zoneId: active?.id,
             zoneName: active?.name,
-            sourceType: camSourceType
+            sourceType: camSourceType,
+            mode: camModal === 'edit' ? 'edit' : 'create',
+            cameraId: editingCam?.id
           }}
         />
         <Form form={camForm} layout="vertical" initialValues={{ sourceType: 'http' }}>
@@ -590,8 +660,8 @@ export function MonitorZonesPage() {
               sourceId={activeSourceDef.id}
               zoneId={active.id}
               zoneName={active.name}
-              mode="create"
-              camera={null}
+              mode={camModal === 'edit' ? 'edit' : 'create'}
+              camera={editingCam}
               getFieldValue={formCtxHelpers.getFieldValue}
               getFieldsValue={formCtxHelpers.getFieldsValue}
               setFieldsValue={formCtxHelpers.setFieldsValue}
@@ -606,7 +676,9 @@ export function MonitorZonesPage() {
                 context={{
                   zoneId: active.id,
                   zoneName: active.name,
-                  sourceType: camSourceType
+                  sourceType: camSourceType,
+                  mode: camModal === 'edit' ? 'edit' : 'create',
+                  cameraId: editingCam?.id
                 }}
               />
               <MonitorCameraPluginFields

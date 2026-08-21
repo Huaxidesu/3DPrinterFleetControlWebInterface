@@ -188,6 +188,10 @@ export class MysqlUserStore {
     /* no-op */
   }
 
+  forceReloadFromDisk(): void {
+    void this.reload().catch((e) => console.error('[mysql-users] force reload failed', e))
+  }
+
   getJwtSecret(): string {
     return this.jwtSecret
   }

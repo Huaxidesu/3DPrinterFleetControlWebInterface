@@ -204,7 +204,7 @@ export function computeDeviceCapabilities(d: DeviceRow | null | undefined): Devi
       set_speed: true
     }
     camera = true
-    notes.push('爱乐高 SDCP：任务控制与摄像头；传文件/开打/深控未接入')
+    notes.push('爱乐酷 SDCP：任务控制与摄像头；传文件/开打/深控未接入')
   } else if (brand === 'anycubic') {
     if (mode === 'cloud') {
       control = { ...none, pause: true, resume: true, cancel: true }
